@@ -51,7 +51,7 @@ class LoopCfg(BaseModel):
     repeat_limit: int = 3
     observation_max_chars: int = 4000
     prune_failed_after: int = 2
-    lazy_tools_over: int = 12
+    lazy_tools_over: int = 40
 
 
 class SubagentsCfg(BaseModel):

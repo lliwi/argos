@@ -38,7 +38,7 @@ loop:
   repeat_limit: 3          # misma acción+resultado N veces => loop_detected
   observation_max_chars: 4000   # RF-CTX-03: lo que excede va a blob y se referencia
   prune_failed_after: 2    # RF-CTX-06: errores antiguos se resumen en contexto
-  lazy_tools_over: 12      # RF-10: con más tools que esto, sus esquemas se cargan a demanda
+  lazy_tools_over: 40      # RF-10: carga diferida solo con catálogos grandes (ADR-0009)
 
 subagents:                 # RF-02
   max_depth: 1             # un subagente no puede delegar a su vez
