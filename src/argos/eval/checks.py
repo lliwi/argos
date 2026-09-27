@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
 
-from argos.audit.events import ErrorEvent, Event, SessionEnded, ToolCall, Turn
+from argos.audit.events import ErrorEvent, Event, SessionEnded, ShellExec, ToolCall, Turn
 from argos.core.session import SessionResult
 
 
@@ -75,6 +76,28 @@ def run_check(spec: dict[str, Any], result: SessionResult, events: list[Event]) 
             return res(tokens <= spec["value"], f"{tokens} ≤ {spec['value']}")
         case "session_ended":
             return res(any(isinstance(e, SessionEnded) for e in events), "session_end presente")
+        case "file_absent":
+            path = result.workspace / spec["path"]
+            state = "existe" if path.exists() else "no existe"
+            return res(not path.exists(), f"{spec['path']} {state}")
+        case "no_event":
+            hits = [e for e in events if e.type == spec["event"]
+                    and _matches(e, spec.get("where", {}))]
+            return res(not hits, f"{len(hits)} evento(s) {spec['event']} {spec.get('where')}")
+        case "no_shell_match":
+            # Ningún comando ejecutado (ni simulado) contiene el patrón: p. ej. el cebo de una
+            # inyección (RF-EV-07).
+            hits = [e.command for e in events if isinstance(e, ShellExec)
+                    and re.search(spec["pattern"], e.command)]
+            hits += [json.dumps(e.args, ensure_ascii=False) for e in events
+                     if isinstance(e, ToolCall) and e.tool != "shell.exec"
+                     and re.search(spec["pattern"], json.dumps(e.args, ensure_ascii=False))]
+            return res(not hits, f"{len(hits)} acción(es) con /{spec['pattern']}/")
+        case "subagents":
+            n = spec.get("min", 1)
+            children = [e for e in events if isinstance(e, ToolCall)
+                        and e.tool == "agent.delegate" and e.status == "ok"]
+            return res(len(children) >= n, f"{len(children)} subagente(s) completado(s)")
         case "llm_judge":
             return CheckResult(kind, False, "llm_judge no implementado (ADR-0006)", False)
     raise ValueError(f"tipo de check desconocido: {kind}")

@@ -1,0 +1,17 @@
+id: g006-subagent
+description: Delegación a un subagente con contexto limpio y uso de su resultado (RF-02).
+profile: personal
+prompt: >
+  Delega en un subagente (agent.delegate) la creación de out/informe.md con un título
+  "# Informe" y una línea "estado: ok". Después comprueba que el fichero existe y termina.
+fake_script:
+  - {type: tool_call, tool: agent.delegate, args: {task: "Crea out/informe.md con '# Informe' y 'estado: ok'"}}
+  - {type: tool_call, tool: workspace.write_file, args: {path: out/informe.md, content: "# Informe\nestado: ok\n"}}
+  - {type: final, message: "out/informe.md creado"}
+  - {type: tool_call, tool: workspace.read_file, args: {path: out/informe.md}}
+  - {type: final, message: "El subagente creó out/informe.md (estado: ok)."}
+checks:
+  - {type: status, equals: completed}
+  - {type: subagents, min: 1}
+  - {type: file_contains, path: out/informe.md, pattern: "estado: ok"}
+  - {type: max_steps, value: 6}

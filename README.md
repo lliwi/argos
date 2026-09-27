@@ -41,7 +41,7 @@ Motor de modelo: `codex` (Codex CLI con suscripción ChatGPT; requiere `codex lo
 |---|---|
 | `argos run` | Ejecuta una tarea en una sesión nueva |
 | `argos audit list/show/replay/cost/diff/metrics` | Revisión de auditoría (RF-OB-04..06) |
-| `argos eval run <suite>` | Corre tareas doradas y registra `eval_run` |
+| `argos eval run/compare` | Tareas doradas, A/B y puerta de regresión ([evals/README.md](evals/README.md)) |
 | `argos kill` / `argos rearm` | Kill switch global (RF-GOV-02) |
 | `argos tools` | Catálogo de tools (RF-11) |
 | `argos skills list/show/install` | Skills instaladas (§9) |

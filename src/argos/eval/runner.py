@@ -99,18 +99,44 @@ async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provide
                        [c.as_dict() for c in checks], metrics)
 
 
+def per_task(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Agrega las corridas de cada tarea (varias si --repeat): tasa de éxito y medias."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for t in summary["tasks"]:
+        if t["status"] in ("passed", "failed"):
+            groups.setdefault(t["task_id"], []).append(t)
+    out = {}
+    for tid, runs in groups.items():
+        n = len(runs)
+        out[tid] = {
+            "runs": n,
+            "pass_rate": round(sum(r["status"] == "passed" for r in runs) / n, 3),
+            "mean_score": round(sum(r["score"] for r in runs) / n, 3),
+            "mean_tokens": round(sum(r["metrics"].get("tokens", 0) for r in runs) / n),
+            "mean_steps": round(sum(r["metrics"].get("steps", 0) for r in runs) / n, 2),
+        }
+    return out
+
+
 async def run_suite(cfg: Config, store: AuditStore, suite: str, provider_name: str,
                     make_provider, only: list[str] | None = None,
-                    baseline_ref: str | None = None) -> dict[str, Any]:
+                    baseline_ref: str | None = None, repeat: int = 1,
+                    overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     tasks = [t for t in load_suite(cfg.root, suite) if not only or t["id"] in only]
-    outcomes = [await run_task(t, cfg, store, provider_name, make_provider, suite, baseline_ref)
-                for t in tasks]
+    outcomes: list[TaskOutcome] = []
+    for run in range(max(1, repeat)):
+        for t in tasks:
+            outcome = await run_task(t, cfg, store, provider_name, make_provider, suite,
+                                     baseline_ref)
+            outcome.metrics.setdefault("run", run + 1)
+            outcomes.append(outcome)
     ran = [o for o in outcomes if o.status in ("passed", "failed")]
     summary = {
         "run_id": datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6],
         "suite": suite, "provider": provider_name, "config_hash": cfg.config_hash(),
+        "overrides": overrides or {}, "repeat": max(1, repeat),
         "aggregate": {
-            "tasks": len(outcomes), "ran": len(ran),
+            "tasks": len(tasks), "ran": len(ran),
             "success_rate": round(sum(o.status == "passed" for o in ran) / len(ran), 3)
             if ran else 0.0,
             "mean_score": round(sum(o.score for o in ran) / len(ran), 3) if ran else 0.0,
@@ -120,6 +146,7 @@ async def run_suite(cfg: Config, store: AuditStore, suite: str, provider_name: s
         },
         "tasks": [asdict(o) for o in outcomes],
     }
+    summary["per_task"] = per_task(summary)
     out_dir = cfg.data_path / "evals"
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"{summary['run_id']}.json").write_text(json.dumps(summary, indent=2))
@@ -130,19 +157,26 @@ def compare_to_baseline(current: dict[str, Any], baseline: dict[str, Any],
                         token_tolerance: float = 0.2) -> list[str]:
     """Puerta de regresión (RF-EV-05): lista de regresiones; vacía => se puede promover."""
     regressions = []
-    base_tasks = {t["task_id"]: t for t in baseline["tasks"]}
-    for t in current["tasks"]:
-        b = base_tasks.get(t["task_id"])
-        if not b or b["status"] not in ("passed", "failed") or t["status"] == "skipped":
+    cur, base = per_task(current), per_task(baseline)
+    for tid, c in cur.items():
+        b = base.get(tid)
+        if not b:
             continue
-        if b["status"] == "passed" and t["status"] != "passed":
-            regressions.append(f"{t['task_id']}: pasaba y ahora {t['status']}")
-        elif t["score"] < b["score"]:
-            regressions.append(f"{t['task_id']}: score {b['score']:.2f} → {t['score']:.2f}")
-        bt, ct = b["metrics"].get("tokens", 0), t["metrics"].get("tokens", 0)
+        if c["pass_rate"] < b["pass_rate"]:
+            regressions.append(f"{tid}: tasa de éxito {b['pass_rate']:.0%} → {c['pass_rate']:.0%}"
+                               + (" (pasaba y ahora falla)" if b["pass_rate"] == 1 else ""))
+        elif c["mean_score"] < b["mean_score"]:
+            regressions.append(f"{tid}: score {b['mean_score']:.2f} → {c['mean_score']:.2f}")
+        bt, ct = b["mean_tokens"], c["mean_tokens"]
         if bt and ct > bt * (1 + token_tolerance):
-            regressions.append(f"{t['task_id']}: tokens {bt} → {ct} (>{token_tolerance:.0%})")
+            regressions.append(f"{tid}: tokens {bt} → {ct} (>{token_tolerance:.0%})")
     ca, ba = current["aggregate"], baseline["aggregate"]
     if ca["success_rate"] < ba["success_rate"]:
         regressions.append(f"success_rate {ba['success_rate']} → {ca['success_rate']}")
     return regressions
+
+
+def compare_runs(a: dict[str, Any], b: dict[str, Any]) -> list[tuple[str, dict, dict]]:
+    """Filas (tarea, métricas A, métricas B) para comparar dos corridas (RF-EV-04)."""
+    pa, pb = per_task(a), per_task(b)
+    return [(tid, pa.get(tid, {}), pb.get(tid, {})) for tid in sorted(set(pa) | set(pb))]

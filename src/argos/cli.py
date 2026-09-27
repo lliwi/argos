@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
 from rich.table import Table
 
 from argos import retention
@@ -18,7 +19,7 @@ from argos.audit.store import AuditStore
 from argos.channels.cli import cli_approver, console, progress_printer
 from argos.config import Config, load_config
 from argos.core.session import SessionOptions, SessionRefused, build_tools, run_session
-from argos.eval.runner import compare_to_baseline, run_suite
+from argos.eval.runner import compare_runs, compare_to_baseline, run_suite
 from argos.governance.killswitch import KillSwitch
 from argos.model import factory
 from argos.model.base import ModelProvider
@@ -281,29 +282,47 @@ def skills_install(
 
 # --- evaluación --------------------------------------------------------------------------------
 
+def _parse_sets(values: list[str] | None) -> dict[str, object]:
+    """`clave.anidada=valor` (valor en YAML) → overrides de configuración."""
+    out: dict[str, object] = {}
+    for item in values or []:
+        key, sep, raw = item.partition("=")
+        if not sep or not key:
+            raise typer.BadParameter(f"--set espera clave=valor: {item!r}")
+        out[key.strip()] = yaml.safe_load(raw)
+    return out
+
+
 @eval_app.command("run")
 def eval_run(
     suite: Annotated[str, typer.Argument()] = "golden",
     provider: Annotated[str, typer.Option(help="fake (CI) | codex")] = "fake",
     task: Annotated[list[str] | None, typer.Option(help="Solo estas tareas")] = None,
+    repeat: Annotated[int, typer.Option(min=1, help="Corridas por tarea (modelos reales)")] = 1,
+    set_: Annotated[list[str] | None, typer.Option(
+        "--set", help="Override de config para A/B, p. ej. model.routes.decide.model=gpt-6-luna")
+    ] = None,
     baseline: Annotated[Path | None, typer.Option(help="JSON de una corrida previa")] = None,
     save_baseline: Annotated[bool, typer.Option(help="Guarda como evals/baselines/")] = False,
 ) -> None:
     """Ejecuta una suite de tareas doradas; con --baseline actúa como puerta de regresión."""
-    cfg, store = _ctx()
+    overrides = _parse_sets(set_)
+    cfg = load_config(overrides=overrides)
+    store = AuditStore(cfg.data_path, Redactor(cfg.audit.redact_pii))
     summary = asyncio.run(run_suite(
         cfg, store, suite, provider, lambda: make_provider(cfg, provider), task,
-        baseline_ref=str(baseline) if baseline else None))
-    table = Table("tarea", "estado", "score", "pasos", "tokens", "sesión", "detalle")
+        baseline_ref=str(baseline) if baseline else None, repeat=repeat, overrides=overrides))
+    table = Table("tarea", "run", "estado", "score", "pasos", "tokens", "sesión", "detalle")
     for t in summary["tasks"]:
         failed = [c["detail"] for c in t["checks"] if not c["passed"] and c["required"]]
         color = {"passed": "green", "failed": "red", "skipped": "yellow"}.get(t["status"], "red")
-        table.add_row(t["task_id"], f"[{color}]{t['status']}", f"{t['score']:.2f}",
-                      str(t["metrics"].get("steps", "")), str(t["metrics"].get("tokens", "")),
-                      (t["session_id"] or "")[:12], t["reason"] or "; ".join(failed)[:80])
+        table.add_row(t["task_id"], str(t["metrics"].get("run", "")), f"[{color}]{t['status']}",
+                      f"{t['score']:.2f}", str(t["metrics"].get("steps", "")),
+                      str(t["metrics"].get("tokens", "")), (t["session_id"] or "")[:12],
+                      t["reason"] or "; ".join(failed)[:80])
     console.print(table)
     console.print(summary["aggregate"])
-    console.print(f"[dim]resultado: var/evals/{summary['run_id']}.json[/]")
+    console.print(f"[dim]resultado: {cfg.data_path / 'evals' / (summary['run_id'] + '.json')}[/]")
     if save_baseline:
         path = cfg.root / "evals" / "baselines" / f"{suite}-{provider}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,6 +336,24 @@ def eval_run(
         console.print("[green]Sin regresiones frente a la línea base.[/]")
     if any(t["status"] in ("failed", "error") for t in summary["tasks"]):
         raise typer.Exit(1)
+
+
+@eval_app.command("compare")
+def eval_compare(a: Path, b: Path) -> None:
+    """Compara dos corridas de evaluación (A/B, RF-EV-04)."""
+    ra, rb = json.loads(a.read_text()), json.loads(b.read_text())
+    for label, r in (("A", ra), ("B", rb)):
+        console.print(f"{label}: {r['run_id']} overrides={r.get('overrides', {})} "
+                      f"config={r['config_hash']}")
+    table = Table("tarea", "éxito A", "éxito B", "tokens A", "tokens B", "pasos A", "pasos B")
+    for tid, x, y in compare_runs(ra, rb):
+        def pct(m):
+            return f"{m['pass_rate']:.0%}" if m else "-"
+        table.add_row(tid, pct(x), pct(y), str(x.get("mean_tokens", "-")),
+                      str(y.get("mean_tokens", "-")), str(x.get("mean_steps", "-")),
+                      str(y.get("mean_steps", "-")))
+    console.print(table)
+    console.print({"A": ra["aggregate"], "B": rb["aggregate"]})
 
 
 if __name__ == "__main__":

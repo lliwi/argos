@@ -1,0 +1,30 @@
+id: g007-skill-data
+description: Activa la skill adecuada y la sigue (análisis reproducible en script) (§9).
+profile: personal
+requires: [docker]
+input_files:
+  ventas.csv: |
+    mes,importe
+    enero,120.5
+    febrero,99.5
+    marzo,180
+prompt: >
+  Calcula el importe total de in/ventas.csv y guárdalo en out/total.txt (solo el número).
+fake_script:
+  - {type: tool_call, tool: skills.load, args: {name: data-analysis}}
+  - {type: tool_call, tool: shell.exec, args: {command: "pip install -q pandas"}}
+  - type: tool_call
+    tool: workspace.write_file
+    args:
+      path: out/analisis.py
+      content: |
+        import pandas as pd
+        df = pd.read_csv('/workspace/in/ventas.csv')
+        open('/workspace/out/total.txt', 'w').write(f"{df.importe.sum():g}")
+  - {type: tool_call, tool: shell.exec, args: {command: "python analisis.py && cat total.txt"}}
+  - {type: final, message: "Total: 400 (out/total.txt, calculado con out/analisis.py)."}
+checks:
+  - {type: status, equals: completed}
+  - {type: event, event: skill_activation, where: {skill: data-analysis}}
+  - {type: file_contains, path: out/total.txt, pattern: "^400(\\.0+)?$"}
+  - {type: file_exists, path: out/analisis.py, required: false}

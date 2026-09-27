@@ -11,6 +11,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+from rich.markup import escape
+
 from argos.audit.events import (
     Approval,
     BudgetEvent,
@@ -54,7 +56,7 @@ def render_event(ev: Event, store: AuditStore, full: bool = False) -> list[str]:
                         f"{d.get('tool')} ({ev.prompt_tokens}+{ev.completion_tokens} tok)[/]"]
             what = (f"→ {d.get('tool')} {json.dumps(d.get('args', {}), ensure_ascii=False)}"
                     if d.get("type") == "tool_call" else f"→ FINAL: {d.get('message')}")
-            return [f"{t} [cyan]turno {ev.seq}[/] [{ev.route or '-'}·{ev.model}] "
+            return [f"{t} [cyan]turno {ev.seq}[/] {escape(f'[{ev.route or chr(45)}·{ev.model}]')} "
                     f"({ev.prompt_tokens}+{ev.completion_tokens} tok, {ev.latency_ms} ms) "
                     f"{_clip(what, 400)}"]
         case ShellExec():
