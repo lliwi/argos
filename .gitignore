@@ -6,10 +6,13 @@ __pycache__/
 dist/
 # Estado de ejecución local
 var/
-# Secretos: solo se versionan los cifrados (*.sops.yaml)
+# Secretos: solo se versionan los cifrados (*.sops.yaml) y los ejemplos (*.example.*)
 secrets/*
 !secrets/*.sops.yaml
 !secrets/README.md
+!secrets/*.example.yaml
+# Inventario de infraestructura (IPs, claves, usuarios, notas): NUNCA se versiona
+secrets/inventory.yaml
 *.agekey
 # Rutas/IDs locales para compose (generado por scripts/setup-env.sh)
 .env

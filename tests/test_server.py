@@ -221,3 +221,15 @@ def test_hook_to_powerful_profile_is_rejected(root):
         "hooks:\n  - {name: h, profile: infra, task_template: '{payload}', token_env: T}\n")
     with pytest.raises(ValueError, match="P2"):
         load_scheduler_cfg(cfg)
+
+
+async def test_tools_catalog_endpoint(cfg, store, fake_sandbox):
+    """RF-11: /tools lista nativas + MCP + skills del perfil."""
+    async with running_core(cfg, store, [], fake_sandbox) as (core, client):
+        items = await client.tools("personal")
+    names = {t["name"] for t in items}
+    assert {"shell.exec", "memory.save", "reminders.add"} <= names
+    assert any(n.startswith("skill:") for n in names)
+    assert "kali.nmap" not in names                       # kali no está en el perfil personal
+    reminders = next(t for t in items if t["name"] == "reminders.add")
+    assert reminders["mcp_server"] == "reminders" and reminders["risk"] == "write"

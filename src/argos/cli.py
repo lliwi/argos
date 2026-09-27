@@ -18,7 +18,7 @@ from argos.audit.review import aggregate_metrics, diff_sessions, replay_lines, s
 from argos.audit.store import AuditStore
 from argos.channels.cli import cli_approver, console, progress_printer
 from argos.config import Config, load_config
-from argos.core.session import SessionOptions, SessionRefused, build_tools, run_session
+from argos.core.session import SessionOptions, SessionRefused, run_session
 from argos.eval.runner import compare_runs, compare_to_baseline, run_suite
 from argos.governance.killswitch import KillSwitch
 from argos.model import factory
@@ -260,9 +260,15 @@ def chat_cmd(
                 pin = "📌" if m.pinned else " "
                 console.print(f"{pin} {m.id} [{m.kind} · {who}] {m.content}", markup=False,
                               highlight=False)
+        elif cmd in ("/herramientas", "/tools"):
+            async def show_tools() -> None:
+                async with _client() as client:
+                    console.print(_render_tools(await client.tools(profile)))
+            asyncio.run(show_tools())
         else:
             console.print("/new  nueva conversación · /threads  hilos recientes · "
-                          "/memoria  lo que recuerda · Ctrl-D  salir")
+                          "/memoria  lo que recuerda · /herramientas  tools del perfil · "
+                          "Ctrl-D  salir")
 
     where = f"hilo {thread}" if thread else "conversación nueva"
     console.print(f"[bold]Argos[/] · perfil {profile} · {where} · /help para comandos")
@@ -470,17 +476,21 @@ def core_run_schedule(name: str) -> None:
     console.print(asyncio.run(go()))
 
 
+def _render_tools(items: list[dict]) -> Table:
+    table = Table("tool", "versión", "riesgo", "idempotente", "origen", "descripción")
+    for t in items:
+        table.add_row(t["name"], t["version"], t["risk"], str(t["idempotent"]),
+                      t.get("mcp_server") or "núcleo", t["description"])
+    return table
+
+
 @app.command()
-def tools(profile: Annotated[str | None, typer.Option("--profile", "-p")] = None) -> None:
-    """Catálogo de tools nativas (RF-11). Las MCP se listan al conectar en sesión."""
+def tools(profile: Annotated[str, typer.Option("--profile", "-p")] = "personal") -> None:
+    """Catálogo completo de tools del perfil, incluidas las MCP y las skills (RF-11)."""
+    from argos.core.session import catalog
+
     cfg = load_config()
-    reg = build_tools(cfg)
-    if profile:
-        reg = reg.for_profile(cfg.profile(profile))
-    table = Table("tool", "versión", "riesgo", "idempotente", "descripción")
-    for t in reg:
-        table.add_row(t.name, t.version, t.risk_class.value, str(t.idempotent), t.description)
-    console.print(table)
+    console.print(_render_tools(asyncio.run(catalog(cfg, profile))))
 
 
 @app.command()

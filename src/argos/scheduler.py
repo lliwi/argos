@@ -136,7 +136,7 @@ def load_scheduler_cfg(cfg: Config) -> SchedulerCfg:
         cfg.profile(item.profile)
     for hook in sc.hooks:
         prof = cfg.profile(hook.profile)
-        if any(s.powerful for s in prof.secrets):
+        if prof.is_powerful:
             raise ValueError(f"hook {hook.name!r}: el perfil {prof.name!r} tiene secretos potentes;"
                              " un payload externo no confiable no puede llegar ahí (P2)")
     return sc

@@ -22,6 +22,7 @@ from argos.core.subagent import DelegateTool
 from argos.governance.approval import Approver, NoApprover
 from argos.governance.budget import BudgetTracker, tokens_spent_today
 from argos.governance.killswitch import KillSwitch
+from argos.inventory import load_inventory
 from argos.model.base import ModelProvider
 from argos.model.factory import engine_instructions
 from argos.sandbox.broker_client import BrokerSandbox
@@ -29,7 +30,13 @@ from argos.sandbox.docker_sandbox import DockerSandbox, EgressPolicy, Sandbox
 from argos.secrets import load_profile_secrets
 from argos.skills import LoadSkillTool, SkillRegistry, skills_index
 from argos.state import StateStore, render_memories
-from argos.tools.mcp_client import McpConnections, kali_server, reminders_server
+from argos.tools.inventory import InventoryTool
+from argos.tools.mcp_client import (
+    McpConnections,
+    kali_server,
+    portainer_server,
+    reminders_server,
+)
 from argos.tools.memory import MemorySave, MemorySearch, MemoryUpdate
 from argos.tools.registry import ToolRegistry
 from argos.tools.scratchpad import SCRATCHPAD_TOOLS
@@ -110,6 +117,51 @@ def build_tools(cfg: Config) -> ToolRegistry:
     return reg
 
 
+async def catalog(cfg: Config, profile_name: str) -> list[dict]:
+    """Catálogo de tools disponibles para un perfil (RF-11): nativas + MCP conectados, filtrado
+    por el perfil. Conecta los MCP solo para enumerarlos y los cierra; no ejecuta nada."""
+    profile = cfg.profile(profile_name)
+    reg = build_tools(cfg)
+    # Tools que una sesión registra dinámicamente (memoria y, si el perfil delega, subagentes).
+    state = StateStore(cfg.data_path / "state.db")
+    reg.register(MemorySave(state, ttl_days=profile.retention_days))
+    reg.register(MemorySearch(state))
+    reg.register(MemoryUpdate(state))
+    if cfg.subagents.max_depth > 0:
+        async def _noop(_task: str, _budget: int):  # solo para poder listar la tool
+            return ("", "completed", "", 0, 0)
+        reg.register(DelegateTool(_noop, cfg.subagents.budget_tokens))
+    mcp = McpConnections()
+    try:
+        if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
+            for tool in await mcp.connect(reminders_server(str(cfg.data_path / "reminders.db"))):
+                reg.register(tool)
+        if profile.allows_tool("kali.nmap"):
+            for tool in await mcp.connect(kali_server(
+                    cfg.kali.url, None, profile.scope, profile.authorization_ref, True)):
+                reg.register(tool)
+        inv = load_inventory(cfg.root)
+        if profile.allows_tool("infra.inventory"):
+            reg.register(InventoryTool(inv))
+        if profile.allows_tool("portainer.list_containers"):
+            pt = inv.get("portainer")
+            for tool in await mcp.connect(portainer_server(
+                    pt.get("url", ""), inv.secret("portainer", "api_key") or "",
+                    int(pt.get("endpoint", 1)), True)):
+                reg.register(tool)
+        reg = reg.for_profile(profile)
+        skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
+        out = [{"name": t.name, "version": t.version, "risk": t.risk_class.value,
+                "idempotent": t.idempotent, "mcp_server": t.mcp_server,
+                "description": t.description} for t in reg]
+        out += [{"name": f"skill:{sk.name}", "version": sk.full_version, "risk": "read",
+                 "idempotent": True, "mcp_server": "skill", "description": sk.description}
+                for sk in skills.values()]
+        return sorted(out, key=lambda d: d["name"])
+    finally:
+        await mcp.aclose()
+
+
 def load_system_prompt(cfg: Config) -> tuple[str, str]:
     """Devuelve el prompt de sistema y una versión que cubre también el prompt del motor."""
     text = (cfg.root / "prompts" / "system.md").read_text(encoding="utf-8")
@@ -178,6 +230,16 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             for tool in await mcp.connect(kali_server(
                     cfg.kali.url, secrets.get(cfg.kali.token_env), profile.scope,
                     profile.authorization_ref, dry_run)):
+                tools.register(tool)
+        inventory = load_inventory(cfg.root, store.redactor)
+        if profile.allows_tool("infra.inventory"):
+            tools.register(InventoryTool(inventory))
+        if profile.allows_tool("portainer.list_containers"):
+            # Gestión de infra propia (UC-3). URL y api key del inventario (nunca al modelo).
+            pt = inventory.get("portainer")
+            for tool in await mcp.connect(portainer_server(
+                    pt.get("url", ""), inventory.secret("portainer", "api_key") or "",
+                    int(pt.get("endpoint", 1)), dry_run)):
                 tools.register(tool)
 
         session_limit = opts.session_budget_tokens or cfg.budget.session_tokens

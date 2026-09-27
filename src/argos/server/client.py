@@ -55,6 +55,9 @@ class CoreClient:
     async def threads(self) -> list[dict[str, Any]]:
         return await self._call("GET", "/threads")
 
+    async def tools(self, profile: str = "personal") -> list[dict[str, Any]]:
+        return await self._call("GET", "/tools", params={"profile": profile})
+
     async def memories(self, profile: str | None = None) -> list[dict[str, Any]]:
         return await self._call("GET", "/memory", params={"profile": profile} if profile else {})
 

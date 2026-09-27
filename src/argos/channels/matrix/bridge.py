@@ -287,9 +287,12 @@ class MatrixBridge:
             items = await self.core.memories(self.cfg.profile)
             text = "\n".join(f"• {m['content']} ({'tú' if m['provenance'] == 'user' else 'agente'})"
                              for m in items[:20]) or "(sin memoria)"
+        elif cmd in ("herramientas", "tools"):
+            items = await self.core.tools(self.cfg.profile)
+            text = "\n".join(f"• {t['name']} ({t['risk']})" for t in items) or "(sin tools)"
         else:
             text = ("Escríbeme una tarea y la hago en un hilo. En el hilo sigue la conversación.\n"
-                    "!estado · !memoria · !kill <motivo> · !rearm")
+                    "!estado · !memoria · !herramientas · !kill <motivo> · !rearm")
         await self.matrix.send_text(room_id, text, thread_root=root, notice=True)
 
 

@@ -1,9 +1,9 @@
 name: infra
 description: Monitorización y gestión de NAS, Cloudflare, Portainer, Home Assistant (UC-3).
-tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*]
+tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*,
+        memory.*, infra.*, portainer.*]
 reads_untrusted: false     # P2: tiene credenciales potentes => no lee contenido no confiable
-secrets:
-  - {name: CLOUDFLARE_API_TOKEN, powerful: true}
-  - {name: PORTAINER_TOKEN, powerful: true}
+secrets: []                # Portainer y demás credenciales viven en secrets/inventory.yaml
 egress_extra: []
-dry_run: true              # por defecto simula acciones hasta Fase 4
+powerful: true             # gestiona infra propia (Portainer, etc.): capacidad potente (P2)
+dry_run: true              # acciones destructivas simuladas por defecto (RF-19); ponlo a false

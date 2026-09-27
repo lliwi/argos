@@ -116,3 +116,15 @@ def kali_server(url: str, token: str | None, scope: list[str], authorization_ref
         env["ARGOS_KALI_TOKEN"] = token
     return McpServerSpec(name="kali", command=sys.executable,
                          args=["-m", "argos.mcp_servers.kali.server"], env=env)
+
+
+def portainer_server(url: str, api_key: str, endpoint: int, dry_run: bool,
+                     verify: bool = True) -> McpServerSpec:
+    """MCP de Portainer (UC-3). URL y api key vienen del inventario, nunca del modelo."""
+    return McpServerSpec(
+        name="portainer", command=sys.executable,
+        args=["-m", "argos.mcp_servers.portainer.server"],
+        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+             "ARGOS_PORTAINER_URL": url or "", "ARGOS_PORTAINER_KEY": api_key or "",
+             "ARGOS_PORTAINER_ENDPOINT": str(endpoint), "ARGOS_PORTAINER_VERIFY": "1" if verify
+             else "0", "ARGOS_PORTAINER_DRY_RUN": "1" if dry_run else "0"})

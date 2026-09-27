@@ -29,7 +29,7 @@ from starlette.routing import Route
 from argos import __version__
 from argos.audit.store import AuditStore
 from argos.config import Config
-from argos.core.session import SessionOptions, SessionRefused
+from argos.core.session import SessionOptions, SessionRefused, catalog
 from argos.governance.killswitch import KillSwitch
 from argos.scheduler import Scheduler, SchedulerCfg, render_hook_task
 from argos.server.hub import ApprovalHub, EventBus, SessionManager
@@ -240,6 +240,15 @@ def build_api(core: Core) -> Starlette:
                                      str(body.get("channel") or "api"), profile)
         return JSONResponse(t.__dict__, 201)
 
+    async def list_tools(request: Request) -> JSONResponse:
+        profile = request.query_params.get("profile", "personal")
+        if not core.cfg.allows_profile(profile):
+            return JSONResponse({"error": f"perfil {profile!r} fuera del segmento"}, 409)
+        try:
+            return JSONResponse(await catalog(core.cfg, profile))
+        except KeyError as exc:
+            return JSONResponse({"error": str(exc)}, 404)
+
     async def list_memory(request: Request) -> JSONResponse:
         profile = request.query_params.get("profile")
         return JSONResponse([m.as_dict() for m in core.state.memories(profile, 50)])
@@ -291,6 +300,7 @@ def build_api(core: Core) -> Starlette:
         Route("/events", stream_all),
         Route("/threads", list_threads, methods=["GET"]),
         Route("/memory", list_memory),
+        Route("/tools", list_tools),
         Route("/threads", create_thread, methods=["POST"]),
         Route("/approvals", list_approvals),
         Route("/approvals/{aid}", decide_approval, methods=["POST"]),

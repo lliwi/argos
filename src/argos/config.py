@@ -143,14 +143,21 @@ class Profile(BaseModel):
     retention_days: int | None = None
     scope: list[str] = Field(default_factory=list)
     authorization_ref: str | None = None
+    # Perfil con capacidad potente (credenciales de servicios, gestión de infra vía inventario…),
+    # aunque sus secretos no vivan en `secrets:` sino en el inventario. Gobierna P2 (RF-SEC-03).
+    powerful: bool = False
+
+    @property
+    def is_powerful(self) -> bool:
+        return self.powerful or any(s.powerful for s in self.secrets)
 
     @model_validator(mode="after")
     def _separate_untrusted_from_power(self) -> Profile:
         # P2 / RF-SEC-03: quien lee datos no confiables no puede tener credenciales potentes.
-        if self.reads_untrusted and any(s.powerful for s in self.secrets):
+        if self.reads_untrusted and self.is_powerful:
             raise ValueError(
-                f"perfil {self.name!r}: reads_untrusted=true es incompatible con secretos"
-                " 'powerful' (P2, RF-SEC-03)")
+                f"perfil {self.name!r}: reads_untrusted=true es incompatible con capacidad"
+                " potente (secretos 'powerful' o powerful=true) (P2, RF-SEC-03)")
         return self
 
     def allows_tool(self, tool_name: str) -> bool:

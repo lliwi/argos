@@ -79,6 +79,20 @@ El propio sistema puede instalar herramientas en el contenedor Kali con `kali.in
 paquete apt validados) y refrescar índices con `kali.apt_update`; no hay ejecución de comandos
 libres. La red de Kali es bridge para poder auditar objetivos reales.
 
+## Infraestructura propia: inventario y Portainer (UC-3)
+Guarda IPs, claves, usuarios y notas en `secrets/inventory.yaml` (git-ignored, no van por el chat):
+```bash
+cp secrets/inventory.example.yaml secrets/inventory.yaml && chmod 600 secrets/inventory.yaml
+# edita: services.portainer.url (http://192.168.0.20:9000), endpoint y api_key
+```
+Los secretos se inyectan a las herramientas y nunca llegan al modelo ni a la auditoría; el agente
+ve solo la documentación con `infra.inventory`. Portainer (perfil infra, segmento main):
+```bash
+ARGOS_SEGMENT=main scripts/argos core submit -p infra "lista mis contenedores y dime si alguno está parado"
+```
+Listar/inspeccionar/logs no piden aprobación; parar/arrancar/reiniciar sí (y se simulan con
+`dry_run: true` por defecto). Ver [ADR-0014](docs/adr/0014-inventario-y-portainer.md).
+
 ## Comandos
 | Comando | Qué hace |
 |---|---|
