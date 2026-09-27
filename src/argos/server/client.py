@@ -48,6 +48,22 @@ class CoreClient:
     async def submit(self, **body: Any) -> str:
         return (await self._call("POST", "/sessions", json=body))["session_id"]
 
+    async def create_thread(self, title: str, profile: str, channel: str) -> dict[str, Any]:
+        return await self._call("POST", "/threads", json={"title": title, "profile": profile,
+                                                          "channel": channel})
+
+    async def threads(self) -> list[dict[str, Any]]:
+        return await self._call("GET", "/threads")
+
+    async def memories(self, profile: str | None = None) -> list[dict[str, Any]]:
+        return await self._call("GET", "/memory", params={"profile": profile} if profile else {})
+
+    async def kill(self, reason: str) -> None:
+        await self._call("POST", "/kill", json={"reason": reason})
+
+    async def rearm(self) -> None:
+        await self._call("POST", "/rearm")
+
     async def sessions(self) -> list[dict[str, Any]]:
         return await self._call("GET", "/sessions")
 

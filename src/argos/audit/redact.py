@@ -19,6 +19,13 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("bearer", re.compile(r"(?i)(bearer\s+)[A-Za-z0-9_\-\.=]{16,}")),
     ("assignment", re.compile(
         r"(?i)\b((?:api[_-]?key|token|secret|password|passwd|pwd)\s*[=:]\s*)['\"]?[^\s'\"&]{6,}")),
+    # Frases libres, también en castellano: "la contraseña es X", "clave: X", "password X".
+    # El valor debe parecer un secreto (≥6 caracteres con algún dígito o símbolo) para no
+    # redactar texto normal como "la contraseña es segura".
+    ("credential", re.compile(
+        r"(?i)\b((?:contrase[ñn]a|clave|password|passwd|pwd|pass|passphrase|pin|token|secreto)"
+        r"(?:\s+(?:es|is|era|sería|nueva|actual|del?\s+\w+)){0,3}\s*[:=]?\s+)"
+        r"['\"]?(?=[^\s'\"]*[\d_\-!@#$%^&*+/.])[^\s'\",;]{6,}")),
 ]
 
 PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -64,7 +71,7 @@ class Redactor:
         for value in sorted(self._known, key=len, reverse=True):
             text = text.replace(value, "[REDACTED:secret]")
         for name, pat in SECRET_PATTERNS:
-            if name in ("bearer", "assignment"):
+            if name in ("bearer", "assignment", "credential"):
                 text = pat.sub(lambda m, n=name: f"{m.group(1)}[REDACTED:{n}]", text)
             else:
                 text = pat.sub(f"[REDACTED:{name}]", text)

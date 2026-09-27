@@ -40,6 +40,10 @@ loop:
   prune_failed_after: 2    # RF-CTX-06: errores antiguos se resumen en contexto
   lazy_tools_over: 40      # RF-10: carga diferida solo con catálogos grandes (ADR-0009)
 
+memory:                    # RF-16/17 y continuidad de conversación
+  inject_limit: 5          # memorias relevantes inyectadas por sesión (+ las fijadas)
+  keep_recent_exchanges: 3 # intercambios literales; los anteriores van resumidos
+
 subagents:                 # RF-02
   max_depth: 1             # un subagente no puede delegar a su vez
   budget_tokens: 60000     # tope por subagente (y nunca más de lo que le quede al padre)
@@ -84,6 +88,14 @@ egress:                    # RF-EX-04: allowlist por defecto (se suma la del per
     - github.com
     - objects.githubusercontent.com
     - raw.githubusercontent.com
+
+matrix:                    # canal Matrix (RF-07, ADR-0012). Token en .env.matrix, no aquí.
+  homeserver: null         # p. ej. https://matrix.tudominio.org
+  user_id: null            # p. ej. "@argos:tudominio.org" (cuenta dedicada del bot)
+  allowed_users: []        # a quién obedece, p. ej. ["@lliwi:tudominio.org"]
+  profile: personal
+  notify_room: null        # sala de control: aprobaciones de sesiones de otros canales
+  progress_interval_s: 3
 
 audit:
   redact_pii: true         # RF-OB-11

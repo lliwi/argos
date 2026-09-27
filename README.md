@@ -43,10 +43,21 @@ scripts/argos core status                        # salud, sesiones, aprobaciones
 scripts/argos core submit "…"                    # envía y sigue una tarea (o --detach)
 scripts/argos core approve <id> [--deny]         # responde una aprobación desde cualquier sitio
 uv run argos console                             # consola de operador (en el host)
+uv run argos chat                                # conversación con hilo y memoria (/help)
+uv run argos memory list | add | edit | pin | forget   # lo que Argos recuerda (RF-18)
 scripts/herdr-argos.sh                           # desde un pane de Herdr: consola + logs
 ```
 Tareas programadas y webhooks en [config/schedules.yaml](config/schedules.yaml)
 ([ADR-0010](docs/adr/0010-nucleo-persistente-y-canales.md)).
+
+## Matrix (Fase 3)
+```bash
+scripts/matrix-login.sh https://matrix.tudominio.org argos   # token del bot → .env.matrix
+# config/argos.yaml → matrix.homeserver, matrix.user_id, matrix.allowed_users
+docker compose --profile daemon up -d daemon matrix
+```
+Invita al bot a una sala **sin cifrar** y escríbele. Aprobaciones con «sí»/«no» o ✅/❌; `!ayuda`
+([ADR-0012](docs/adr/0012-canal-matrix.md)).
 
 ## Comandos
 | Comando | Qué hace |

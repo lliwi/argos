@@ -164,6 +164,16 @@ class SkillActivation(Event):
     version: str
 
 
+class MemoryEvent(Event):
+    """Qué memoria se guardó, se consultó o se inyectó en la sesión (RF-16/17, P8)."""
+
+    type: Literal["memory_event"] = "memory_event"
+    turn_id: str | None = None
+    op: Literal["save", "update", "search", "inject"]
+    memory_ids: list[str] = Field(default_factory=list)
+    detail: str = ""
+
+
 class Approval(Event):
     type: Literal["approval"] = "approval"
     turn_id: str
@@ -214,7 +224,8 @@ EVENT_TYPES: dict[str, type[Event]] = {
     cls.model_fields["type"].default: cls
     for cls in (
         SessionStarted, SessionEnded, Turn, ToolCall, ShellExec, FileEvent, PackageInstall,
-        PlanEvent, SkillActivation, Approval, ErrorEvent, BudgetEvent, Feedback, EvalRun,
+        PlanEvent, SkillActivation, MemoryEvent, Approval, ErrorEvent, BudgetEvent, Feedback,
+        EvalRun,
     )
 }
 

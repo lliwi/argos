@@ -1,6 +1,6 @@
 name: personal
 description: Recordatorios y tareas cotidianas (UC-4).
-tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, reminders.*]
+tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*, reminders.*]
 reads_untrusted: false
 secrets: []
 egress_extra: []

@@ -11,11 +11,12 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from argos.audit.events import SessionEnded, SessionStarted
+from argos.audit.events import MemoryEvent, SessionEnded, SessionStarted
 from argos.audit.redact import Redactor
 from argos.audit.store import AuditStore
 from argos.config import Config, harness_commit, sha256_text
 from argos.core.context import ContextManager, LoadToolsTool, ReadRefTool
+from argos.core.conversation import compose_task, conversation_block
 from argos.core.loop import AgentLoop, LoopResult
 from argos.core.subagent import DelegateTool
 from argos.governance.approval import Approver, NoApprover
@@ -26,7 +27,9 @@ from argos.model.factory import engine_instructions
 from argos.sandbox.docker_sandbox import DockerSandbox, EgressPolicy, Sandbox
 from argos.secrets import load_profile_secrets
 from argos.skills import LoadSkillTool, SkillRegistry, skills_index
+from argos.state import StateStore, render_memories
 from argos.tools.mcp_client import McpConnections, reminders_server
+from argos.tools.memory import MemorySave, MemorySearch, MemoryUpdate
 from argos.tools.registry import ToolRegistry
 from argos.tools.scratchpad import SCRATCHPAD_TOOLS
 from argos.tools.shell import ShellExecTool
@@ -53,6 +56,7 @@ class SessionOptions:
     workspace: Path | None = None        # subagentes: comparten el workspace del padre
     depth: int = 0                       # 0 = sesión raíz
     session_id: str | None = None        # lo fija la API para poder devolverlo al instante
+    thread_id: str | None = None         # conversación a la que pertenece (argos.state)
     trace_id: str | None = None
 
 
@@ -158,9 +162,13 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
     mcp = McpConnections()
     result: LoopResult | None = None
     try:
+        state_dir = opts.state_dir or cfg.data_path
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state = StateStore(state_dir / "state.db")
+        tools.register(MemorySave(state, ttl_days=profile.retention_days))
+        tools.register(MemorySearch(state))
+        tools.register(MemoryUpdate(state))
         if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
-            state_dir = opts.state_dir or cfg.data_path
-            state_dir.mkdir(parents=True, exist_ok=True)
             for tool in await mcp.connect(reminders_server(str(state_dir / "reminders.db"))):
                 tools.register(tool)
 
@@ -225,6 +233,18 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             tools=tools, context=context, budget=budget, killswitch=killswitch,
             approver=approver or NoApprover(), workspace=workspace, sandbox=sandbox,
             dry_run=dry_run, on_progress=on_progress)
+
+        # Memoria relevante (RF-17) y contexto de la conversación. Los subagentes no: su
+        # contexto limpio es justo lo que se busca (RF-02).
+        if opts.depth == 0:
+            memories = state.relevant(profile.name, opts.task, cfg.memory.inject_limit)
+            conversation = (await conversation_block(state, opts.thread_id, loop,
+                                                     cfg.memory.keep_recent_exchanges)
+                            if opts.thread_id else "")
+            context.task = compose_task(opts.task, render_memories(memories), conversation)
+            if memories:
+                store.emit(MemoryEvent(session_id=sid, trace_id=sid, op="inject",
+                                       memory_ids=[m.id for m in memories]))
         try:
             result = await loop.run()
         except asyncio.CancelledError:
@@ -236,6 +256,8 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             end = result or LoopResult("failed", "sesión interrumpida", 0, 0)
             store.emit(SessionEnded(session_id=sid, trace_id=opts.trace_id or sid,
                                     status=end.status, result=end.message, steps=end.steps))
+            if opts.thread_id and opts.depth == 0:
+                state.append_exchange(opts.thread_id, sid, opts.task, end.message, end.status)
     finally:
         await mcp.aclose()
 

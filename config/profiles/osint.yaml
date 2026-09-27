@@ -1,6 +1,6 @@
 name: osint
 description: Investigación de fuentes abiertas (UC-1). Lee contenido no confiable => sin poder.
-tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*]
+tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*]
 reads_untrusted: true
 secrets: []               # RF-SEC-03: nunca credenciales potentes
 egress_extra: []           # se amplía por tarea, explícitamente

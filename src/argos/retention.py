@@ -21,6 +21,7 @@ from pathlib import Path
 
 from argos.audit.store import AuditStore
 from argos.config import Config
+from argos.state import StateStore
 
 _REF = re.compile(r"sha256:([0-9a-f]{64})")
 
@@ -30,6 +31,7 @@ class PurgeReport:
     sessions: list[str] = field(default_factory=list)
     blobs: int = 0
     bytes_freed: int = 0
+    memories: int = 0
 
 
 def _size(path: Path) -> int:
@@ -69,6 +71,15 @@ def purge(cfg: Config, store: AuditStore, now: datetime | None = None,
         with open(cfg.data_path / "purge.jsonl", "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"ts": now.isoformat(), "session_id": sid, "profile": profile,
                                  "retention_days": days}) + "\n")
+
+    # Memoria del agente: solo caduca en perfiles con retención explícita (osint: datos de
+    # terceros, RF-LEG-03). La retención de auditoría no aplica: olvidar tu entorno no es
+    # minimización, es perder utilidad. Las tuyas solo caducan si les pones fecha.
+    retention = {name: p.retention_days for name, p in cfg.profiles.items()
+                 if p.retention_days is not None}
+    state_db = cfg.data_path / "state.db"
+    if state_db.exists() and not dry_run:
+        report.memories = StateStore(state_db).purge_memories(retention, now)
 
     # Recolección de blobs huérfanos: los que ningún evento restante referencia.
     referenced = {m for (data,) in store.db.execute("SELECT data FROM events")

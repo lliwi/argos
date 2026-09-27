@@ -126,6 +126,26 @@ services:
       - ${ARGOS_AGE_DIR}:/age
     depends_on: [egress-main]
 
+  # Puente Matrix (RF-07): cliente de la API del núcleo `daemon`. Sin socket Docker ni clave age:
+  # solo ve el socket de la API y su token (.env.matrix, ver scripts/matrix-login.sh).
+  matrix:
+    <<: *core
+    profiles: [daemon]
+    command: ["matrix"]
+    restart: unless-stopped
+    stdin_open: false
+    tty: false
+    group_add: []
+    env_file: [{path: .env.matrix, required: false}]
+    environment:
+      ARGOS_SEGMENT: main
+      PYTHONPATH: ${ARGOS_DIR}/src
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
+    networks: [egress]
+    depends_on: [daemon]
+
 networks:
   # Redes de sandbox: internas, sin salida. Cada una solo alcanza al proxy de su segmento.
   sandbox_main:

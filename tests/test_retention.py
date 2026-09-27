@@ -56,3 +56,15 @@ def test_backup_refuses_without_encryption_key(cfg, store):
 
     with pytest.raises(retention.BackupError, match="sin cifrado"):
         retention.backup(cfg, store, encrypt=True)
+
+
+def test_memory_purge_only_for_profiles_with_explicit_retention(cfg, store):
+    from argos.state import StateStore
+
+    st = StateStore(cfg.data_path / "state.db")
+    keep = st.add_memory("personal", "fact", "el NAS está en 192.168.1.10", "agent")
+    gone = st.add_memory("osint", "finding", "cuenta encontrada en foro", "agent")
+    future = datetime.now(UTC) + timedelta(days=cfg.audit.retention_days + 1)
+    report = retention.purge(cfg, store, now=future)
+    ids = {m.id for m in st.memories()}
+    assert report.memories == 1 and keep.id in ids and gone.id not in ids

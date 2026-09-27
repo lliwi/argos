@@ -54,6 +54,11 @@ class LoopCfg(BaseModel):
     lazy_tools_over: int = 40
 
 
+class MemoryCfg(BaseModel):
+    inject_limit: int = 5              # RF-17: memorias relevantes por sesión
+    keep_recent_exchanges: int = 3     # intercambios literales de la conversación
+
+
 class SubagentsCfg(BaseModel):
     max_depth: int = 1
     budget_tokens: int = 60_000
@@ -95,6 +100,18 @@ class SegmentCfg(BaseModel):
     egress_extra: list[str] = Field(default_factory=list)
     network: str | None = None      # por defecto argos_sandbox_<segmento>
     proxy_url: str | None = None    # por defecto http://egress-<segmento>:3128
+
+
+class MatrixCfg(BaseModel):
+    """Canal Matrix (RF-07). El token del bot nunca va aquí: variable `token_env`."""
+
+    homeserver: str | None = None
+    user_id: str | None = None
+    allowed_users: list[str] = Field(default_factory=list)
+    profile: str = "personal"
+    notify_room: str | None = None      # sala de control para aprobaciones de otros canales
+    token_env: str = "ARGOS_MATRIX_TOKEN"
+    progress_interval_s: float = 3.0
 
 
 class AuditCfg(BaseModel):
@@ -141,9 +158,11 @@ class Config(BaseModel):
     approval: ApprovalCfg = ApprovalCfg()
     concurrency: ConcurrencyCfg = ConcurrencyCfg()
     subagents: SubagentsCfg = SubagentsCfg()
+    memory: MemoryCfg = MemoryCfg()
     sandbox: SandboxCfg = SandboxCfg()
     egress: EgressCfg = EgressCfg()
     audit: AuditCfg = AuditCfg()
+    matrix: MatrixCfg = MatrixCfg()
     segments: dict[str, SegmentCfg] = Field(
         default_factory=lambda: {"main": SegmentCfg(profiles=["*"])})
     segment: str = "main"            # activo: $ARGOS_SEGMENT

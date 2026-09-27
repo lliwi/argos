@@ -20,6 +20,7 @@ from argos.audit.events import (
     EvalRun,
     Event,
     FileEvent,
+    MemoryEvent,
     PackageInstall,
     SessionEnded,
     SessionStarted,
@@ -80,6 +81,12 @@ def render_event(ev: Event, store: AuditStore, full: bool = False) -> list[str]:
                     f"{'==' + ev.version if ev.version else ''} {ev.status}[/]"]
         case ErrorEvent():
             return [f"{t}   [red]ERROR {ev.kind.value}[/]: {_clip(ev.message, 300)}"]
+        case MemoryEvent():
+            what = {"save": "guardada", "update": "corregida", "search": "búsqueda",
+                    "inject": "inyectada"}[ev.op]
+            ids = ", ".join(ev.memory_ids) or "sin resultados"
+            detail = f": {_clip(ev.detail, 120)}" if ev.detail else ""
+            return [f"{t}   [blue]memoria {what}[/] ({ids}){detail}"]
         case SkillActivation():
             return [f"{t}   [blue]skill {ev.skill} {ev.version} activada[/]"]
         case Approval():

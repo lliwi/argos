@@ -194,3 +194,20 @@ def test_store_roundtrip_and_blobs(store):
     ref = store.put_blob("hola password=12345678")
     assert "12345678" not in store.get_blob(ref)
     assert store.sessions()[0]["id"] == "s1" and store.resolve_session("s") == "s1"
+
+
+@pytest.mark.parametrize("text,leaks", [
+    ("mi usuario es argo y la contraseña djhqk98_jkolpK9, recuérdalo", "djhqk98_jkolpK9"),
+    ("La clave del wifi es Casa2026!", "Casa2026!"),
+    ("password: hunter2x", "hunter2x"),
+    ("el pin es 483920", "483920"),
+])
+def test_redacts_spanish_and_free_form_credentials(text, leaks):
+    out = Redactor().redact_text(text)
+    assert leaks not in out and "[REDACTED:" in out
+
+
+@pytest.mark.parametrize("text", ["la contraseña es segura", "cambia la clave cuando puedas",
+                                  "el token expira mañana"])
+def test_does_not_redact_ordinary_sentences(text):
+    assert Redactor(redact_pii=False).redact_text(text) == text

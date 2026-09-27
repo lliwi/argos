@@ -33,6 +33,7 @@ from argos.core.session import SessionOptions, SessionRefused
 from argos.governance.killswitch import KillSwitch
 from argos.scheduler import Scheduler, SchedulerCfg, render_hook_task
 from argos.server.hub import ApprovalHub, EventBus, SessionManager
+from argos.state import StateStore
 
 TERMINAL = {"completed", "failed", "aborted", "killed"}
 
@@ -50,6 +51,7 @@ class Core:
         self.manager = SessionManager(cfg, store, provider_factory, self.hub)
         self.scheduler = Scheduler(cfg, sched_cfg, self.manager)
         self.kill = KillSwitch(store)
+        self.state = StateStore(cfg.data_path / "state.db")
         self.started = time.time()
 
     # --- salud (RNF-11) --------------------------------------------------------------------------
@@ -104,7 +106,8 @@ def _opts_from(body: dict[str, Any], channel: str) -> SessionOptions:
         task=body["task"], profile=body.get("profile", "personal"),
         channel=body.get("channel", channel), dry_run=body.get("dry_run"),
         allow_domains=list(body.get("allow_domains") or []),
-        session_budget_tokens=body.get("budget_tokens"))
+        session_budget_tokens=body.get("budget_tokens"),
+        thread_id=body.get("thread_id"))
 
 
 def build_api(core: Core) -> Starlette:
@@ -127,6 +130,8 @@ def build_api(core: Core) -> Starlette:
     async def create_session(request: Request) -> JSONResponse:
         try:
             opts = _opts_from(await request.json(), "api")
+            if opts.thread_id:
+                core.state.thread(opts.thread_id)   # KeyError => 400
             sid = core.manager.start(opts)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, 400)
@@ -214,6 +219,22 @@ def build_api(core: Core) -> Starlette:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    async def create_thread(request: Request) -> JSONResponse:
+        body = await request.json()
+        profile = body.get("profile", "personal")
+        if not core.cfg.allows_profile(profile):
+            return JSONResponse({"error": f"perfil {profile!r} fuera del segmento"}, 409)
+        t = core.state.create_thread(str(body.get("title") or "conversación"),
+                                     str(body.get("channel") or "api"), profile)
+        return JSONResponse(t.__dict__, 201)
+
+    async def list_memory(request: Request) -> JSONResponse:
+        profile = request.query_params.get("profile")
+        return JSONResponse([m.as_dict() for m in core.state.memories(profile, 50)])
+
+    async def list_threads(_: Request) -> JSONResponse:
+        return JSONResponse([t.__dict__ for t in core.state.threads(30)])
+
     async def list_approvals(_: Request) -> JSONResponse:
         return JSONResponse([p.as_dict() for p in core.hub.pending.values()])
 
@@ -256,6 +277,9 @@ def build_api(core: Core) -> Starlette:
         Route("/sessions/{sid}/cancel", cancel_session, methods=["POST"]),
         Route("/sessions/{sid}/events", stream_events),
         Route("/events", stream_all),
+        Route("/threads", list_threads, methods=["GET"]),
+        Route("/memory", list_memory),
+        Route("/threads", create_thread, methods=["POST"]),
         Route("/approvals", list_approvals),
         Route("/approvals/{aid}", decide_approval, methods=["POST"]),
         Route("/kill", kill, methods=["POST"]),

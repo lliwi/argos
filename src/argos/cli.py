@@ -116,6 +116,36 @@ def _client():
         raise typer.Exit(2) from exc
 
 
+def _compact_line(data: dict, root: str) -> str | None:
+    """Chat: la respuesta destacada; lo que hace el agente, atenuado y en una línea."""
+    from rich.markup import escape
+
+    kind = data.get("type")
+    sub_ = data.get("session_id") != root
+    pad = "    " if sub_ else "  "
+    if kind == "session" and sub_:
+        return f"[dim]{pad}↳ subagente: {escape(data['task'][:80])}[/]"
+    if kind == "turn" and data.get("purpose") == "decide":
+        d = data.get("decision") or {}
+        if d.get("type") == "tool_call":
+            args = json.dumps(d.get("args") or {}, ensure_ascii=False)
+            args = args if len(args) <= 70 else args[:70] + "…"
+            return f"[dim]{pad}· {escape(str(d.get('tool')))} {escape(args)}[/]"
+    if kind == "tool_call" and data.get("status") in ("error", "denied"):
+        return f"[dim red]{pad}  ✗ {escape((data.get('result_preview') or '')[:100])}[/]"
+    if kind == "memory_event" and data.get("op") == "save":
+        return f"[dim]{pad}· recordado: {escape(data.get('detail', '')[:90])}[/]"
+    if kind == "error_event" and data.get("kind") in ("budget_exceeded", "loop_detected",
+                                                      "model_error", "killed"):
+        return f"[red]{pad}{data['kind']}: {escape(data['message'][:120])}[/]"
+    if kind == "session_end" and not sub_:
+        color = "" if data["status"] == "completed" else "red"
+        answer = escape(data.get("result") or "")
+        footer = f"[dim]({data['status']} · {data.get('steps', 0)} pasos)[/]"
+        return f"\n[{color or 'bold'}]{answer}[/]\n{footer}"
+    return None
+
+
 async def _attach(sid: str, interactive: bool = True, compact: bool = False) -> str:
     """Muestra el progreso en vivo y resuelve aprobaciones desde la terminal (canal CLI)."""
     import sys
@@ -151,11 +181,12 @@ async def _attach(sid: str, interactive: bool = True, compact: bool = False) -> 
                 event = parse_event(data)
             except (KeyError, ValueError):
                 continue
-            if compact and data.get("type") == "session":
-                # En el chat basta con saber que arrancó; versiones y tools, en `audit show`.
-                if data.get("parent_session_id"):
-                    console.print(f"[dim]  ↳ subagente {data['session_id'][:8]}: "
-                                  f"{data['task'][:80]}[/]")
+            if compact:
+                line = _compact_line(data, sid)
+                if line:
+                    console.print(line, highlight=False)
+                if data.get("type") == "session_end" and data.get("session_id") == sid:
+                    status = data.get("status", status)
                 continue
             for line in render_event(event, store):
                 console.print(line, highlight=False)
@@ -184,17 +215,57 @@ def console_cmd() -> None:
 
 
 @app.command("chat")
-def chat_cmd(profile: Annotated[str, typer.Option("--profile", "-p")] = "personal") -> None:
-    """Conversación con el núcleo persistente: escribe una tarea, sigue su progreso y responde
-    sus aprobaciones; al terminar, la siguiente. Ctrl-D para salir."""
-    console.print(f"[bold]Argos[/] · perfil {profile} · escribe una tarea (Ctrl-D para salir)")
+def chat_cmd(
+    profile: Annotated[str, typer.Option("--profile", "-p")] = "personal",
+    thread: Annotated[str | None, typer.Option(help="Retomar un hilo existente")] = None,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Detalle técnico")] = False,
+) -> None:
+    """Conversación con el núcleo persistente. Cada mensaje es una sesión auditada, encadenada
+    al mismo hilo para que Argos recuerde de qué se habla. Comandos: /new, /threads,
+    /memoria, /help. Ctrl-D para salir."""
+    from argos.state import StateStore
+
+    cfg = load_config()
+    state = StateStore(cfg.data_path / "state.db")
+    current: dict[str, str | None] = {"thread": thread}
+
+    async def new_thread(title: str) -> str:
+        async with _client() as client:
+            return (await client.create_thread(title, profile, "chat"))["id"]
 
     async def one(task: str) -> None:
+        if not current["thread"]:
+            current["thread"] = await new_thread(task[:60])
         async with _client() as client:
-            sid = await client.submit(task=task, profile=profile, channel="chat")
-        console.print(f"[dim]sesión {sid[:12]}[/]")
-        await _attach(sid, compact=True)
+            sid = await client.submit(task=task, profile=profile, channel="chat",
+                                      thread_id=current["thread"])
+        if verbose:
+            console.print(f"[dim]sesión {sid[:12]} · hilo {current['thread']}[/]")
+        await _attach(sid, compact=not verbose)
 
+    def command(line: str) -> None:
+        cmd = line.split()[0]
+        if cmd == "/new":
+            current["thread"] = None
+            console.print("[dim]nueva conversación[/]")
+        elif cmd == "/threads":
+            for t in state.threads(10):
+                mark = "›" if t.id == current["thread"] else " "
+                console.print(f"{mark} {t.id}  {t.updated_at[:16]}  {t.title}", markup=False,
+                              highlight=False)
+            console.print("[dim]retoma uno con: argos chat --thread <id>[/]")
+        elif cmd in ("/memoria", "/memory"):
+            for m in state.memories(profile, limit=15):
+                who = "tú" if m.provenance == "user" else "agente"
+                pin = "📌" if m.pinned else " "
+                console.print(f"{pin} {m.id} [{m.kind} · {who}] {m.content}", markup=False,
+                              highlight=False)
+        else:
+            console.print("/new  nueva conversación · /threads  hilos recientes · "
+                          "/memoria  lo que recuerda · Ctrl-D  salir")
+
+    where = f"hilo {thread}" if thread else "conversación nueva"
+    console.print(f"[bold]Argos[/] · perfil {profile} · {where} · /help para comandos")
     while True:
         try:
             task = input("\nargos> ").strip()
@@ -203,6 +274,9 @@ def chat_cmd(profile: Annotated[str, typer.Option("--profile", "-p")] = "persona
             return
         if not task:
             continue
+        if task.startswith("/"):
+            command(task)
+            continue
         try:
             asyncio.run(one(task))
         except KeyboardInterrupt:
@@ -210,6 +284,106 @@ def chat_cmd(profile: Annotated[str, typer.Option("--profile", "-p")] = "persona
                           "`argos core attach` para retomarla)[/]")
         except RuntimeError as exc:
             console.print(f"[red]{exc}[/]")
+
+
+@app.command("matrix")
+def matrix_cmd() -> None:
+    """Puente Matrix: tareas por mensaje, progreso en hilos y aprobaciones desde el móvil."""
+    import logging
+    import os
+
+    from argos.channels.matrix.bridge import BridgeConfig, MatrixBridge
+    from argos.channels.matrix.client import MatrixClient
+
+    cfg = load_config()
+    mc = cfg.matrix
+    token = os.environ.get(mc.token_env, "")
+    missing = [n for n, v in (("matrix.homeserver", mc.homeserver),
+                              ("matrix.allowed_users", mc.allowed_users),
+                              (mc.token_env, token)) if not v]
+    if missing:
+        console.print(f"[red]Falta configuración:[/] {', '.join(missing)} "
+                      "(config/argos.yaml y .env.matrix)")
+        raise typer.Exit(2)
+    if not cfg.allows_profile(mc.profile):
+        raise typer.BadParameter(f"perfil {mc.profile!r} fuera del segmento {cfg.segment!r}")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+
+    async def go() -> None:
+        matrix = MatrixClient(mc.homeserver, token)
+        try:
+            async with _client() as core:
+                bridge = MatrixBridge(matrix, core, BridgeConfig(
+                    allowed_users=mc.allowed_users, profile=mc.profile,
+                    notify_room=mc.notify_room, progress_interval_s=mc.progress_interval_s),
+                    cfg.data_path / "matrix.db")
+                await bridge.run()
+        finally:
+            await matrix.aclose()
+    try:
+        asyncio.run(go())
+    except KeyboardInterrupt:
+        pass
+
+
+# --- memoria (RF-18) -----------------------------------------------------------------------------
+
+memory_app = typer.Typer(help="Memoria durable: inspeccionar, editar y borrar (RF-18).",
+                         no_args_is_help=True)
+app.add_typer(memory_app, name="memory")
+
+
+def _state():
+    from argos.state import StateStore
+
+    return StateStore(load_config().data_path / "state.db")
+
+
+@memory_app.command("list")
+def memory_list(
+    profile: Annotated[str | None, typer.Option("--profile", "-p")] = None,
+    query: Annotated[str | None, typer.Option("--query", "-q", help="Buscar")] = None,
+) -> None:
+    """Lista la memoria (o busca con --query). «tú» = fiable; «agente» = entra como dato."""
+    st = _state()
+    items = st.search(profile or "personal", query, 30) if query else st.memories(profile)
+    table = Table("id", "perfil", "tipo", "origen", "📌", "contenido", "actualizada")
+    for m in items:
+        table.add_row(m.id, m.profile, m.kind, "tú" if m.provenance == "user" else "agente",
+                      "sí" if m.pinned else "", m.content, m.updated_at[:16])
+    console.print(table)
+
+
+@memory_app.command("add")
+def memory_add(
+    content: str,
+    profile: Annotated[str, typer.Option("--profile", "-p")] = "personal",
+    kind: Annotated[str, typer.Option(help="fact | preference | finding | note")] = "preference",
+    pin: Annotated[bool, typer.Option("--pin", help="Inyectar siempre")] = False,
+) -> None:
+    """Añade una memoria tuya (fiable: entra como preferencia, no como dato)."""
+    m = _state().add_memory(profile, kind, content, "user", pinned=pin)
+    console.print(f"[green]guardada {m.id}[/]")
+
+
+@memory_app.command("edit")
+def memory_edit(memory_id: str, content: str) -> None:
+    """Corrige una memoria; al editarla pasa a ser tuya (revisada)."""
+    m = _state().update_memory(memory_id, content=content)
+    console.print(f"[green]{m.id} actualizada[/]")
+
+
+@memory_app.command("pin")
+def memory_pin(memory_id: str, off: Annotated[bool, typer.Option("--off")] = False) -> None:
+    """Fija (o desfija) una memoria: se inyecta en todas las sesiones del perfil."""
+    _state().update_memory(memory_id, pinned=not off)
+    console.print("[green]hecho[/]")
+
+
+@memory_app.command("forget")
+def memory_forget(memory_id: str) -> None:
+    """Borra una memoria."""
+    console.print("[green]olvidada[/]" if _state().forget(memory_id) else "[red]no existe[/]")
 
 
 @core_app.command("submit")
@@ -331,8 +505,9 @@ def purge(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -> None:
     cfg, store = _ctx()
     report = retention.purge(cfg, store, dry_run=dry_run)
     verb = "Se purgarían" if dry_run else "Purgadas"
-    console.print(f"{verb} {len(report.sessions)} sesiones y {report.blobs} blobs huérfanos "
-                  f"({report.bytes_freed / 1e6:.1f} MB) en el segmento {cfg.segment}.")
+    console.print(f"{verb} {len(report.sessions)} sesiones, {report.memories} memorias y "
+                  f"{report.blobs} blobs huérfanos ({report.bytes_freed / 1e6:.1f} MB) en el "
+                  f"segmento {cfg.segment}.")
 
 
 @app.command()

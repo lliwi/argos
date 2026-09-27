@@ -14,3 +14,4 @@ secrets/*
 # Rutas/IDs locales para compose (generado por scripts/setup-env.sh)
 .env
 .env.hooks
+.env.matrix
