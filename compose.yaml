@@ -101,6 +101,31 @@ services:
       - ${ARGOS_CODEX_HOME}:/codex
     depends_on: [egress-pentest]
 
+  # Núcleo persistente del segmento main (RF-04): API en var/segments/main/run/argos.sock,
+  # scheduler y webhooks en 127.0.0.1:8787. Clientes: `scripts/argos core status|submit|attach`.
+  daemon:
+    <<: *core
+    profiles: [daemon]
+    command: ["serve", "--hooks-host", "0.0.0.0", "--hooks-port", "8787"]
+    restart: unless-stopped
+    stdin_open: false
+    tty: false
+    ports: ["127.0.0.1:8787:8787"]
+    env_file: [{path: .env.hooks, required: false}]   # tokens ARGOS_HOOK_*_TOKEN
+    environment:
+      ARGOS_SEGMENT: main
+      PYTHONPATH: ${ARGOS_DIR}/src
+      SOPS_AGE_KEY_FILE: /age/age.key
+      ARGOS_KEY_DIR: /age
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
+      - ${ARGOS_DIR}/var/egress/main:${ARGOS_DIR}/var/egress/main
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_CODEX_HOME}:/codex
+      - ${ARGOS_AGE_DIR}:/age
+    depends_on: [egress-main]
+
 networks:
   # Redes de sandbox: internas, sin salida. Cada una solo alcanza al proxy de su segmento.
   sandbox_main:

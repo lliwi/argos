@@ -1,0 +1,24 @@
+# Tareas programadas y webhooks (§6.4). Cada ejecución es una sesión auditada propia, sin
+# aprobador humano: cualquier acción que requiera aprobación se deniega (RF-GOV-05).
+timezone: Europe/Madrid
+
+schedules:
+  - name: resumen-recordatorios
+    cron: "0 8 * * *"            # todos los días a las 08:00
+    profile: personal
+    task: >
+      Lista mis recordatorios pendientes y escribe en out/resumen.md los que vencen hoy o ya
+      han vencido, ordenados por fecha.
+    budget_tokens: 40000
+    enabled: false               # actívalo cuando quieras que corra
+
+# Webhooks: POST http://127.0.0.1:<puerto>/hooks/<name> con cabecera X-Argos-Token.
+# El payload es dato no confiable; el perfil destino no puede tener secretos potentes.
+hooks:
+  - name: aviso
+    profile: personal
+    token_env: ARGOS_HOOK_AVISO_TOKEN
+    task_template: >
+      Ha llegado este aviso externo. Crea un recordatorio para hoy con un resumen de una línea.
+      {payload}
+    enabled: false

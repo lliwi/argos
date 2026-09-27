@@ -36,6 +36,18 @@ Las credenciales de Codex del contenedor viven en `~/.config/argos/codex-home` (
 Motor de modelo: `codex` (Codex CLI con suscripción ChatGPT; requiere `codex login`) o `fake`
 (respuestas guionizadas, para tests y CI). Ver [ADR-0001](docs/adr/0001-motor-codex-cli.md).
 
+## Núcleo persistente y consola (Fase 3)
+```bash
+docker compose --profile daemon up -d daemon     # núcleo 24/7: API, scheduler, webhooks
+scripts/argos core status                        # salud, sesiones, aprobaciones, tareas
+scripts/argos core submit "…"                    # envía y sigue una tarea (o --detach)
+scripts/argos core approve <id> [--deny]         # responde una aprobación desde cualquier sitio
+uv run argos console                             # consola de operador (en el host)
+scripts/herdr-argos.sh                           # desde un pane de Herdr: consola + logs
+```
+Tareas programadas y webhooks en [config/schedules.yaml](config/schedules.yaml)
+([ADR-0010](docs/adr/0010-nucleo-persistente-y-canales.md)).
+
 ## Comandos
 | Comando | Qué hace |
 |---|---|

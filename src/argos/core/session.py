@@ -52,6 +52,7 @@ class SessionOptions:
     state_dir: Path | None = None        # estado durable de tools (p. ej. evals aisladas)
     workspace: Path | None = None        # subagentes: comparten el workspace del padre
     depth: int = 0                       # 0 = sesión raíz
+    session_id: str | None = None        # lo fija la API para poder devolverlo al instante
     trace_id: str | None = None
 
 
@@ -144,7 +145,7 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
                approver: Approver | None, sandbox_factory, on_progress) -> SessionResult:
     profile = cfg.profile(opts.profile)
     killswitch = KillSwitch(store)
-    sid = uuid.uuid4().hex
+    sid = opts.session_id or uuid.uuid4().hex
     dry_run = profile.dry_run if opts.dry_run is None else opts.dry_run
     workspace = opts.workspace or cfg.data_path / "workspaces" / sid
     (workspace / "in").mkdir(parents=True, exist_ok=True)
@@ -226,6 +227,9 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             dry_run=dry_run, on_progress=on_progress)
         try:
             result = await loop.run()
+        except asyncio.CancelledError:
+            result = LoopResult("aborted", "cancelada por el usuario", 0, 0)
+            raise
         finally:
             await sandbox.destroy()
             # Si el bucle reventó o fue cancelado, la sesión se cierra igualmente en auditoría.

@@ -1,0 +1,52 @@
+#!/bin/sh
+# Abre un panel del plugin: argos-open <entrypoint> <split|popup|tab>.
+# En modo tab reutiliza la pestaña «argos» si ya existe (como hace claw).
+set -eu
+HERDR="${HERDR_BIN_PATH:-herdr}"
+entry="${1:-chat}"
+mode="${2:-split}"
+TAB_NAME="${ARGOS_TAB_NAME:-argos}"
+
+WS=""
+[ -n "${HERDR_WORKSPACE_ID:-}" ] && WS="--workspace $HERDR_WORKSPACE_ID"
+
+find_tab() {
+  "$HERDR" tab list $WS 2>/dev/null | ARGOS_TAB_NAME="$TAB_NAME" python3 -c '
+import json, os, sys
+want = os.environ["ARGOS_TAB_NAME"]
+try:
+    data = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+for tab in (data.get("result") or data).get("tabs") or []:
+    if (tab.get("label") or "").endswith(want):
+        print(tab.get("tab_id") or "")
+        break
+' 2>/dev/null || true
+}
+
+case "$mode" in
+  popup)
+    exec "$HERDR" plugin pane open --plugin argos --entrypoint "$entry"
+    ;;
+  tab)
+    tab="$(find_tab)"
+    if [ -n "$tab" ]; then
+      exec "$HERDR" tab focus "$tab"
+    fi
+    out="$("$HERDR" plugin pane open --plugin argos --entrypoint "$entry" --placement tab)"
+    tab="$(printf '%s' "$out" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+pane = ((data.get("result") or {}).get("plugin_pane") or {}).get("pane") or {}
+print(pane.get("tab_id") or "")
+' 2>/dev/null)" || tab=""
+    [ -n "$tab" ] && "$HERDR" tab rename "$tab" "$TAB_NAME" >/dev/null 2>&1 || true
+    ;;
+  *)
+    exec "$HERDR" plugin pane open --plugin argos --entrypoint "$entry" --placement split --direction right
+    ;;
+esac

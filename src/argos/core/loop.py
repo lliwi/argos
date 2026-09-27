@@ -9,6 +9,7 @@ Garantías:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import time
@@ -120,7 +121,15 @@ class AgentLoop:
         """Ejecuta el paso cancelándolo en cuanto se active el kill switch (CA-9)."""
         task = asyncio.ensure_future(coro)
         while not task.done():
-            done, _ = await asyncio.wait({task}, timeout=0.5)
+            try:
+                done, _ = await asyncio.wait({task}, timeout=0.5)
+            except asyncio.CancelledError:
+                # Cancelación externa (API/CLI): el paso en curso también debe detenerse; si no,
+                # la tool seguiría ejecutándose después de "cancelar".
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+                raise
             if not done and (reason := self.kill.active()):
                 task.cancel()
                 try:

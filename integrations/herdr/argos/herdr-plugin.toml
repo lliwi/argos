@@ -1,0 +1,63 @@
+id = "argos"
+name = "Argos"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Arnés de agentes Argos: chat con el núcleo persistente, consola y aprobaciones"
+platforms = ["linux"]
+
+# Chat: escribe una tarea, ve su progreso y responde sus aprobaciones en el mismo panel.
+[[panes]]
+id = "chat"
+title = "argos"
+placement = "split"
+description = "Chat con el núcleo de Argos"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-launch" chat']
+
+[[panes]]
+id = "chat-popup"
+title = "argos"
+placement = "popup"
+width = "80%"
+height = "80%"
+description = "El chat en un popup, sin tocar la distribución"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-launch" chat']
+
+# Consola de operador: todas las sesiones en vivo; informa a Herdr (working/blocked/idle).
+[[panes]]
+id = "console"
+title = "argos · consola"
+placement = "split"
+description = "Actividad de todas las sesiones y aprobaciones"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-launch" console']
+
+# Los keybindings solo invocan acciones, así que cada forma de abrirlo tiene la suya.
+[[actions]]
+id = "open-chat"
+title = "argos: abrir el chat"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-open" chat split']
+
+[[actions]]
+id = "open-popup"
+title = "argos: el chat en un popup"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-open" chat-popup popup']
+
+[[actions]]
+id = "open-tab"
+title = "argos: el chat en una pestaña"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-open" chat tab']
+
+[[actions]]
+id = "open-console"
+title = "argos: abrir la consola de operador"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-open" console split']
+
+# Diagnóstico: arranca el núcleo si hace falta y muestra su salud (ver `herdr plugin log list`).
+[[actions]]
+id = "check"
+title = "argos: comprobar el núcleo"
+contexts = ["global"]
+command = ["sh", "-c", '"$HERDR_PLUGIN_ROOT/bin/argos-launch" status']

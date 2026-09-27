@@ -1,0 +1,24 @@
+#!/bin/sh
+# Asegura el núcleo persistente (compose `daemon`, segmento main) y ejecuta un subcomando de la
+# CLI de Argos en el host: chat | console | status.
+set -eu
+REPO="$(cd "$(dirname "$0")/../../../.." && pwd)"
+cd "$REPO"
+
+UV="$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")"
+SOCK="$REPO/var/segments/main/run/argos.sock"
+
+if [ ! -S "$SOCK" ]; then
+  echo "Arrancando el núcleo de Argos…"
+  docker compose up -d egress-main >/dev/null
+  docker compose --profile daemon up -d daemon >/dev/null
+  i=0
+  while [ ! -S "$SOCK" ] && [ "$i" -lt 50 ]; do sleep 0.2; i=$((i + 1)); done
+fi
+
+case "${1:-chat}" in
+  chat)    exec "$UV" run --quiet argos chat ;;
+  console) exec "$UV" run --quiet argos console ;;
+  status)  exec "$UV" run --quiet argos core status ;;
+  *)       echo "uso: argos-launch chat|console|status" >&2; exit 2 ;;
+esac

@@ -6,7 +6,7 @@ import hashlib
 import json
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +50,8 @@ class AuditStore:
         self.jsonl_dir.mkdir(parents=True, exist_ok=True)
         self.blob_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        # Suscriptores en vivo: reciben cada evento ya redactado (los canales retransmiten esto).
+        self.listeners: list[Callable[[dict[str, Any]], None]] = []
         self.db = sqlite3.connect(root / "argos.db", check_same_thread=False)
         self.db.executescript(SCHEMA)
 
@@ -78,6 +80,11 @@ class AuditStore:
                     (event.status, data["ts"], event.session_id),
                 )
             self.db.commit()
+        for listener in list(self.listeners):
+            try:
+                listener(data)
+            except Exception:  # noqa: BLE001 — un canal roto no puede romper la auditoría
+                pass
         return event
 
     def put_blob(self, content: str | bytes) -> str:

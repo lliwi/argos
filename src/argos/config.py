@@ -178,6 +178,11 @@ class Config(BaseModel):
         """Política y eventos del proxy: fuera del directorio de datos del núcleo."""
         return self.base_path / "egress" / (segment or self.segment)
 
+    @property
+    def api_socket(self) -> Path:
+        """Socket de la API del núcleo persistente (RF-04), dentro de un directorio 700."""
+        return self.data_path / "run" / "argos.sock"
+
     def broker_socket(self, segment: str | None = None) -> Path:
         return self.base_path / "broker" / (segment or self.segment) / "broker.sock"
 

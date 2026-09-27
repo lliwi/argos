@@ -77,6 +77,225 @@ def run(
         raise typer.Exit(1)
 
 
+# --- núcleo persistente (RF-04) -----------------------------------------------------------------
+
+core_app = typer.Typer(help="Núcleo persistente: API, sesiones en segundo plano, scheduler.",
+                       no_args_is_help=True)
+app.add_typer(core_app, name="core")
+
+
+@app.command()
+def serve(
+    hooks_port: Annotated[int | None, typer.Option(help="Puerto TCP para webhooks")] = None,
+    hooks_host: Annotated[str, typer.Option(help="Interfaz de webhooks")] = "127.0.0.1",
+) -> None:
+    """Arranca el núcleo persistente: API en socket Unix + scheduler (+ webhooks)."""
+    from argos.scheduler import load_scheduler_cfg
+    from argos.server.app import Core
+    from argos.server.app import serve as run_server
+
+    cfg, store = _ctx()
+    core = Core(cfg, store, lambda: make_provider(cfg), load_scheduler_cfg(cfg))
+    console.print(f"[green]Argos[/] segmento [bold]{cfg.segment}[/] · API {cfg.api_socket}"
+                  + (f" · webhooks {hooks_host}:{hooks_port}" if hooks_port else "")
+                  + f" · {len(core.scheduler.sched.schedules)} tareas programadas")
+    try:
+        asyncio.run(run_server(core, cfg.api_socket, hooks_host, hooks_port))
+    except KeyboardInterrupt:
+        console.print("núcleo detenido")
+
+
+def _client():
+    from argos.server.client import CoreClient, CoreUnavailable
+
+    cfg = load_config()
+    try:
+        return CoreClient(cfg.api_socket)
+    except CoreUnavailable as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+
+async def _attach(sid: str, interactive: bool = True, compact: bool = False) -> str:
+    """Muestra el progreso en vivo y resuelve aprobaciones desde la terminal (canal CLI)."""
+    import sys
+
+    from argos.audit.events import parse_event
+    from argos.audit.review import render_event
+
+    _, store = _ctx()
+    status = "desconocido"
+    async with _client() as client:
+        async for data in client.events(sid):
+            if data.get("type") == "stream_end":
+                status = data.get("status", status)
+                console.print(f"[bold]FIN[/] estado={status}: {data.get('message', '')}")
+                continue
+            if data.get("type") == "approval_request":
+                console.print(f"\n[bold yellow]APROBACIÓN {data['id']}[/] {data['action']} "
+                              f"(riesgo {data['risk_class']}, {data['timeout_s']}s)")
+                console.print(data["details"], markup=False, highlight=False)
+                if not (interactive and sys.stdin.isatty()):
+                    console.print(f"  responde con: argos core approve {data['id']} [--deny]")
+                    continue
+                try:
+                    answer = await asyncio.wait_for(asyncio.to_thread(
+                        input, "¿Aprobar? [s/N] "), data["timeout_s"])
+                except TimeoutError:
+                    continue
+                decision = "approved" if answer.strip().lower() in ("s", "si", "sí", "y") \
+                    else "denied"
+                await client.decide(data["id"], decision, "cli-user", "cli")
+                continue
+            try:
+                event = parse_event(data)
+            except (KeyError, ValueError):
+                continue
+            if compact and data.get("type") == "session":
+                # En el chat basta con saber que arrancó; versiones y tools, en `audit show`.
+                if data.get("parent_session_id"):
+                    console.print(f"[dim]  ↳ subagente {data['session_id'][:8]}: "
+                                  f"{data['task'][:80]}[/]")
+                continue
+            for line in render_event(event, store):
+                console.print(line, highlight=False)
+            if data.get("type") == "session_end" and data.get("session_id") == sid:
+                status = data.get("status", status)
+    return status
+
+
+@app.command("console")
+def console_cmd() -> None:
+    """Consola de operador: actividad de todas las sesiones y aprobaciones (canal TUI).
+    Dentro de un pane de Herdr informa además de su estado y notifica aprobaciones."""
+    from argos.channels.console import HerdrReporter, run_console
+
+    reporter = HerdrReporter()
+    console.print("[bold]Argos · consola[/]" + (
+        f" · Herdr pane {reporter.pane}" if reporter.enabled else " · (sin Herdr)"))
+
+    async def go() -> None:
+        async with _client() as client:
+            await run_console(client, reporter, console)
+    try:
+        asyncio.run(go())
+    except KeyboardInterrupt:
+        pass
+
+
+@app.command("chat")
+def chat_cmd(profile: Annotated[str, typer.Option("--profile", "-p")] = "personal") -> None:
+    """Conversación con el núcleo persistente: escribe una tarea, sigue su progreso y responde
+    sus aprobaciones; al terminar, la siguiente. Ctrl-D para salir."""
+    console.print(f"[bold]Argos[/] · perfil {profile} · escribe una tarea (Ctrl-D para salir)")
+
+    async def one(task: str) -> None:
+        async with _client() as client:
+            sid = await client.submit(task=task, profile=profile, channel="chat")
+        console.print(f"[dim]sesión {sid[:12]}[/]")
+        await _attach(sid, compact=True)
+
+    while True:
+        try:
+            task = input("\nargos> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            return
+        if not task:
+            continue
+        try:
+            asyncio.run(one(task))
+        except KeyboardInterrupt:
+            console.print("[yellow]desconectado (la sesión sigue en el núcleo; "
+                          "`argos core attach` para retomarla)[/]")
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/]")
+
+
+@core_app.command("submit")
+def core_submit(
+    task: Annotated[str, typer.Argument()],
+    profile: Annotated[str, typer.Option("--profile", "-p")] = "personal",
+    dry_run: Annotated[bool | None, typer.Option("--dry-run/--no-dry-run")] = None,
+    budget: Annotated[int | None, typer.Option()] = None,
+    follow: Annotated[bool, typer.Option("--follow/--detach")] = True,
+) -> None:
+    """Envía una tarea al núcleo persistente; por defecto sigue su progreso."""
+    async def go() -> None:
+        async with _client() as client:
+            sid = await client.submit(task=task, profile=profile, dry_run=dry_run,
+                                      budget_tokens=budget, channel="cli")
+        console.print(f"sesión [bold]{sid}[/]")
+        if follow:
+            status = await _attach(sid)
+            raise typer.Exit(0 if status == "completed" else 1)
+    asyncio.run(go())
+
+
+@core_app.command("attach")
+def core_attach(session: str) -> None:
+    """Sigue una sesión en curso (o reproduce una terminada) y responde sus aprobaciones."""
+    asyncio.run(_attach(session))
+
+
+@core_app.command("status")
+def core_status() -> None:
+    """Salud del núcleo, sesiones en curso, aprobaciones pendientes y tareas programadas."""
+    async def go() -> None:
+        async with _client() as client:
+            health, sessions, pending, schedules = await asyncio.gather(
+                client.health(), client.sessions(), client.approvals(), client.schedules())
+        console.print_json(json.dumps(health))
+        live = [s for s in sessions if s["live"]]
+        if live:
+            t = Table("sesión", "perfil", "canal", "tarea")
+            for s in live:
+                t.add_row(s["id"][:12], s["profile"], s["channel"], (s["task"] or "")[:60])
+            console.print(t)
+        for a in pending:
+            console.print(f"[yellow]pendiente {a['id']}[/] {a['action']} ({a['risk_class']}) "
+                          f"sesión {a['session_id'][:12]}")
+        if schedules:
+            t = Table("tarea", "cron", "activa", "última", "estado", "omitidas")
+            for sc in schedules:
+                t.add_row(sc["name"], sc["cron"], str(sc["enabled"]), sc["last_fired"] or "-",
+                          sc["last_status"] or "-", str(sc["skipped"]))
+            console.print(t)
+    asyncio.run(go())
+
+
+@core_app.command("approve")
+def core_approve(
+    approval_id: str,
+    deny: Annotated[bool, typer.Option("--deny", help="Denegar en lugar de aprobar")] = False,
+) -> None:
+    """Responde a una aprobación pendiente (desde cualquier terminal, RF-20)."""
+    async def go() -> bool:
+        async with _client() as client:
+            return await client.decide(approval_id, "denied" if deny else "approved",
+                                       "cli-user", "cli")
+    ok = asyncio.run(go())
+    console.print("[green]registrada[/]" if ok else "[red]no existe o ya resuelta[/]")
+
+
+@core_app.command("cancel")
+def core_cancel(session: str) -> None:
+    """Cancela una sesión en curso."""
+    async def go() -> bool:
+        async with _client() as client:
+            return await client.cancel(session)
+    console.print("[green]cancelada[/]" if asyncio.run(go()) else "[red]no está en curso[/]")
+
+
+@core_app.command("run-schedule")
+def core_run_schedule(name: str) -> None:
+    """Dispara ahora una tarea programada (misma política: sin aprobador humano)."""
+    async def go() -> dict:
+        async with _client() as client:
+            return await client.run_schedule(name)
+    console.print(asyncio.run(go()))
+
+
 @app.command()
 def tools(profile: Annotated[str | None, typer.Option("--profile", "-p")] = None) -> None:
     """Catálogo de tools nativas (RF-11). Las MCP se listan al conectar en sesión."""
