@@ -81,7 +81,7 @@ class ConcurrencyCfg(BaseModel):
 
 class SandboxCfg(BaseModel):
     # broker = vía el servicio que posee el socket Docker (ADR-0008); docker = CLI directa (dev).
-    backend: str = "docker"
+    backend: str = "broker"
     image: str = "argos-sandbox:latest"
     cpus: str = "1.0"
     memory: str = "1g"
@@ -100,6 +100,13 @@ class SegmentCfg(BaseModel):
     egress_extra: list[str] = Field(default_factory=list)
     network: str | None = None      # por defecto argos_sandbox_<segmento>
     proxy_url: str | None = None    # por defecto http://egress-<segmento>:3128
+
+
+class KaliCfg(BaseModel):
+    """MCP de Kali (UC-2). El alcance y la autorización son del perfil, no de aquí."""
+
+    url: str = "http://kali:8000"
+    token_env: str = "KALI_API_TOKEN"     # secreto opcional del perfil pentest
 
 
 class MatrixCfg(BaseModel):
@@ -163,6 +170,7 @@ class Config(BaseModel):
     egress: EgressCfg = EgressCfg()
     audit: AuditCfg = AuditCfg()
     matrix: MatrixCfg = MatrixCfg()
+    kali: KaliCfg = KaliCfg()
     segments: dict[str, SegmentCfg] = Field(
         default_factory=lambda: {"main": SegmentCfg(profiles=["*"])})
     segment: str = "main"            # activo: $ARGOS_SEGMENT

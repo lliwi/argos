@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}/argos"
 mkdir -p "$CFG/codex-home"
-for s in main osint pentest; do mkdir -p "var/segments/$s" "var/egress/$s"; done
+for s in main osint pentest; do mkdir -p "var/segments/$s" "var/egress/$s" "var/broker/$s"; done
 chmod 700 "$CFG" "$CFG/codex-home"
 cat > .env <<ENV
 UID=$(id -u)

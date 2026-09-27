@@ -24,11 +24,12 @@ from argos.governance.budget import BudgetTracker, tokens_spent_today
 from argos.governance.killswitch import KillSwitch
 from argos.model.base import ModelProvider
 from argos.model.factory import engine_instructions
+from argos.sandbox.broker_client import BrokerSandbox
 from argos.sandbox.docker_sandbox import DockerSandbox, EgressPolicy, Sandbox
 from argos.secrets import load_profile_secrets
 from argos.skills import LoadSkillTool, SkillRegistry, skills_index
 from argos.state import StateStore, render_memories
-from argos.tools.mcp_client import McpConnections, reminders_server
+from argos.tools.mcp_client import McpConnections, kali_server, reminders_server
 from argos.tools.memory import MemorySave, MemorySearch, MemoryUpdate
 from argos.tools.registry import ToolRegistry
 from argos.tools.scratchpad import SCRATCHPAD_TOOLS
@@ -171,6 +172,13 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
         if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
             for tool in await mcp.connect(reminders_server(str(state_dir / "reminders.db"))):
                 tools.register(tool)
+        if profile.allows_tool("kali.nmap"):
+            # Auditoría de servicios propios (UC-2). Alcance y autorización del perfil (RF-SEC-06,
+            # RF-LEG-01); el token de Kali, si lo hay, es un secreto scoped (nunca al modelo).
+            for tool in await mcp.connect(kali_server(
+                    cfg.kali.url, secrets.get(cfg.kali.token_env), profile.scope,
+                    profile.authorization_ref, dry_run)):
+                tools.register(tool)
 
         session_limit = opts.session_budget_tokens or cfg.budget.session_tokens
         budget = BudgetTracker(sid, session_limit, cfg.budget.day_tokens, cfg.budget.warn_ratio,
@@ -210,12 +218,22 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             tools.register(LoadToolsTool(context))
         context.tools = tools.specs()
 
-        policy = EgressPolicy(cfg.egress_path())
-        policy.set_default([*cfg.egress.allowlist, *cfg.segments[cfg.segment].egress_extra])
-        factory = sandbox_factory or (lambda: DockerSandbox(
-            session_id=sid, workspace=workspace, cfg=cfg.sandbox, policy=policy,
-            network=cfg.segment_network(), proxy_url=cfg.segment_proxy(), segment=cfg.segment,
-            allowlist_extra=[*profile.egress_extra, *opts.allow_domains], env=secrets))
+        extra = [*profile.egress_extra, *opts.allow_domains]
+        if sandbox_factory is not None:
+            factory = sandbox_factory
+        elif cfg.sandbox.backend == "broker":
+            # El núcleo no toca Docker: pide el sandbox de su sesión al broker (ADR-0008).
+            def factory() -> BrokerSandbox:
+                return BrokerSandbox(cfg.broker_socket(), sid, extra, secrets)
+        else:
+            policy = EgressPolicy(cfg.egress_path())
+            policy.set_default([*cfg.egress.allowlist, *cfg.segments[cfg.segment].egress_extra])
+
+            def factory() -> DockerSandbox:
+                return DockerSandbox(
+                    session_id=sid, workspace=workspace, cfg=cfg.sandbox, policy=policy,
+                    network=cfg.segment_network(), proxy_url=cfg.segment_proxy(),
+                    segment=cfg.segment, allowlist_extra=extra, env=secrets)
         sandbox: Sandbox = LazySandbox(factory)
 
         store.emit(SessionStarted(

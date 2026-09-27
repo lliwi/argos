@@ -12,6 +12,7 @@ import shlex
 from typing import Any
 
 from argos.audit.events import ErrorEvent, ErrorKind, PackageInstall, RiskClass, ShellExec
+from argos.pentest import Scope, ScopeError
 from argos.tools.base import Tool, ToolContext, ToolError, ToolResult
 
 DESTRUCTIVE = [
@@ -106,11 +107,11 @@ class ShellExecTool(Tool):
             raise ToolError("command vacío", ErrorKind.VALIDATION_ERROR)
         targets = offensive_targets(command)
         if targets is not None:
-            out_of_scope = [t for t in targets if t not in ctx.profile.scope]
-            if not targets or out_of_scope:
-                raise ToolError(
-                    f"objetivo(s) fuera de alcance autorizado: {out_of_scope or '(sin objetivo)'}"
-                    f" — scope del perfil: {ctx.profile.scope}", ErrorKind.VALIDATION_ERROR)
+            # Mismo criterio de alcance/autorización que el MCP de Kali (RF-SEC-06, RF-LEG-01).
+            try:
+                Scope.from_profile(ctx.profile).check(targets)
+            except ScopeError as exc:
+                raise ToolError(str(exc), ErrorKind.VALIDATION_ERROR) from exc
 
         if ctx.dry_run:
             ctx.emit(ShellExec(session_id=ctx.session_id, turn_id=ctx.turn_id, command=command,

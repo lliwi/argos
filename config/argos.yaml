@@ -68,7 +68,7 @@ segments:
   pentest: {profiles: [pentest]}
 
 sandbox:
-  backend: docker          # docker (CLI directa). "broker" (ADR-0008) aún no implementado
+  backend: broker          # broker (ADR-0008) | docker (CLI directa, solo desarrollo)
   image: argos-sandbox:latest
   cpus: "1.0"
   memory: 1g
@@ -88,6 +88,10 @@ egress:                    # RF-EX-04: allowlist por defecto (se suma la del per
     - github.com
     - objects.githubusercontent.com
     - raw.githubusercontent.com
+
+kali:                      # MCP de Kali para auditoría de servicios propios (UC-2, ADR-0013)
+  url: http://kali:8000    # API REST del contenedor kali (red interna del segmento pentest)
+  token_env: KALI_API_TOKEN
 
 matrix:                    # canal Matrix (RF-07, ADR-0012). Token en .env.matrix, no aquí.
   homeserver: null         # p. ej. https://matrix.tudominio.org

@@ -49,12 +49,20 @@ class McpTool(Tool):
         self.description = spec.description or spec.name
         self.parameters = spec.input_schema or {"type": "object", "properties": {}}
         self.risk_class, self.idempotent = risk_from_annotations(spec.annotations)
+        # Una tool MCP puede declararse explícitamente ofensiva vía meta (p. ej. el MCP de Kali):
+        # eso fuerza aprobación humana en Argos (RF-GOV-04).
+        meta = getattr(spec, "meta", None) or {}
+        if isinstance(meta, dict) and meta.get("argos_risk") == "offensive":
+            self.risk_class = RiskClass.OFFENSIVE
 
     async def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        if ctx.dry_run and self.risk_class != RiskClass.READ:
+        # El MCP de Kali gestiona su propio dry-run (devuelve el comando previsto y valida el
+        # alcance incluso en simulación); el resto de MCP no ejecuta en dry-run.
+        if ctx.dry_run and self.risk_class != RiskClass.READ and self.mcp_server != "kali":
             return ToolResult(f"[dry-run] se invocaría {self.name}({args})")
         try:
-            result = await self._session.call_tool(self._remote_name, args, read_timeout_seconds=60)
+            result = await self._session.call_tool(
+                self._remote_name, args, read_timeout_seconds=600)
         except Exception as exc:  # noqa: BLE001
             raise ToolError(f"MCP {self.name}: {exc}", ErrorKind.TOOL_ERROR) from exc
         text = "\n".join(
@@ -91,3 +99,20 @@ def reminders_server(db_path: str) -> McpServerSpec:
         name="reminders", command=sys.executable,
         args=["-m", "argos.mcp_servers.reminders.server"],
         env={"ARGOS_REMINDERS_DB": db_path, "PYTHONPATH": src_dir})
+
+
+def kali_server(url: str, token: str | None, scope: list[str], authorization_ref: str | None,
+                dry_run: bool) -> McpServerSpec:
+    """MCP de Kali (UC-2). El alcance y la autorización se inyectan por entorno; el servidor los
+    aplica antes de cada acción (RF-SEC-06, RF-LEG-01)."""
+    env = {
+        "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+        "ARGOS_KALI_URL": url,
+        "ARGOS_PENTEST_SCOPE": ",".join(scope),
+        "ARGOS_PENTEST_AUTH": authorization_ref or "",
+        "ARGOS_PENTEST_DRY_RUN": "1" if dry_run else "0",
+    }
+    if token:
+        env["ARGOS_KALI_TOKEN"] = token
+    return McpServerSpec(name="kali", command=sys.executable,
+                         args=["-m", "argos.mcp_servers.kali.server"], env=env)

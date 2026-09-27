@@ -59,6 +59,26 @@ docker compose --profile daemon up -d daemon matrix
 Invita al bot a una sala **sin cifrar** y escríbele. Aprobaciones con «sí»/«no» o ✅/❌; `!ayuda`
 ([ADR-0012](docs/adr/0012-canal-matrix.md)).
 
+## Pentest de servicios propios (UC-2)
+Auditoría de tus propios servicios web con Kali, con alcance y autorización obligatorios
+([ADR-0013](docs/adr/0013-mcp-kali-pentest.md)). En `config/profiles/pentest.yaml`:
+```yaml
+scope: ["app.midominio.org", "*.lab.midominio.org", "10.0.0.0/24"]
+authorization_ref: "autorizacion-propia-2026-01"   # constancia de que es tuyo/autorizado
+dry_run: true    # simula por defecto; ponlo a false y aprueba cada acción para ejecutar
+```
+```bash
+docker compose --profile kali build kali
+docker compose --profile core --profile kali up -d core-pentest kali egress-pentest broker
+ARGOS_SEGMENT=pentest scripts/argos core submit -p pentest "reconoce app.midominio.org"
+```
+Sin `scope`+`authorization_ref` no se ejecuta ninguna acción ofensiva; los objetivos fuera de
+alcance se rechazan; cada acción real pide aprobación (RF-GOV-04). Skill de apoyo: `web-recon`.
+
+El propio sistema puede instalar herramientas en el contenedor Kali con `kali.install` (nombres de
+paquete apt validados) y refrescar índices con `kali.apt_update`; no hay ejecución de comandos
+libres. La red de Kali es bridge para poder auditar objetivos reales.
+
 ## Comandos
 | Comando | Qué hace |
 |---|---|

@@ -57,10 +57,18 @@ def docker_ready(image: str) -> str | None:
     return None
 
 
+def sandbox_ready(cfg: Config) -> str | None:
+    """None si hay sandbox disponible para las tareas que lo necesitan; si no, el motivo."""
+    if cfg.sandbox.backend == "broker":
+        sock = cfg.broker_socket()
+        return None if sock.exists() else f"broker no disponible ({sock})"
+    return docker_ready(cfg.sandbox.image)
+
+
 async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provider_name: str,
                    make_provider, suite: str, baseline_ref: str | None) -> TaskOutcome:
     tid = task["id"]
-    if "docker" in task.get("requires", []) and (why := docker_ready(cfg.sandbox.image)):
+    if "docker" in task.get("requires", []) and (why := sandbox_ready(cfg)):
         return TaskOutcome(tid, "skipped", reason=why)
     if provider_name == "fake":
         if "fake_script" not in task:

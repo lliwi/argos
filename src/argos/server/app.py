@@ -63,7 +63,8 @@ class Core:
             checks["audit_store"] = "ok"
         except Exception as exc:  # noqa: BLE001
             checks["audit_store"] = f"error: {exc}"
-        checks["docker"] = await _docker_ok()
+        checks["sandbox"] = (await _broker_ok(self.cfg.broker_socket())
+                             if self.cfg.sandbox.backend == "broker" else await _docker_ok())
         checks["egress_proxy"] = await asyncio.to_thread(_tcp_ok, self.cfg.segment_proxy())
         checks["model_engine"] = ("ok" if self.cfg.model.provider != "codex"
                                   or shutil.which("codex") else "error: codex no encontrado")
@@ -84,6 +85,17 @@ async def _docker_ok() -> str:
         return "ok" if await asyncio.wait_for(proc.wait(), 5) == 0 else "error: docker info"
     except (FileNotFoundError, TimeoutError):
         return "error: docker no disponible"
+
+
+async def _broker_ok(path: Path) -> str:
+    if not path.exists():
+        return f"error: broker sin socket ({path})"
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_unix_connection(str(path)), 2)
+        writer.close()
+        return "ok"
+    except (OSError, TimeoutError) as exc:
+        return f"error: broker no responde: {exc}"
 
 
 def _tcp_ok(url: str) -> str:

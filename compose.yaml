@@ -9,9 +9,8 @@
 # Cada segmento (main, osint, pentest) tiene su propia red de sandbox (sin salida a Internet),
 # su proxy de egress con allowlist y su directorio de datos. Solo `main` recibe la clave age.
 #
-# LIMITACIÓN ACTUAL: los núcleos montan el socket Docker del host para crear sandboxes. Quien
-# tiene ese socket tiene control total del host, así que la separación entre segmentos es de red,
-# datos y secretos, no a nivel de host. El broker de sandbox (ADR-0008) está pendiente.
+# Solo el servicio `broker` tiene el socket Docker (control total del host). Los núcleos piden su
+# sandbox al broker por un socket Unix de su segmento y no pueden tocar Docker (ADR-0008).
 name: argos
 
 x-egress: &egress
@@ -30,7 +29,6 @@ x-core: &core
   image: argos-core:latest
   profiles: [core]
   user: "${UID:-1000}:${GID:-1000}"
-  group_add: ["${DOCKER_GID:-958}"]     # acceso al socket Docker (ver LIMITACIÓN)
   working_dir: ${ARGOS_DIR:?ejecuta scripts/setup-env.sh}
   networks: [egress]
   stdin_open: true
@@ -49,6 +47,41 @@ services:
     <<: *egress
     volumes: ["./var/egress/pentest:/var/egress"]
     networks: [sandbox_pentest, egress]
+
+  # Broker de sandbox (ADR-0008): ÚNICO servicio con el socket Docker. Sin red: solo habla por
+  # los sockets Unix de cada segmento (var/broker/<seg>/broker.sock).
+  broker:
+    image: argos-core:latest
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    group_add: ["${DOCKER_GID:-958}"]
+    network_mode: none
+    working_dir: ${ARGOS_DIR}
+    entrypoint: ["python", "-m", "argos.sandbox.broker"]
+    environment:
+      PYTHONPATH: ${ARGOS_DIR}/src
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - ${ARGOS_DIR}/var/segments:${ARGOS_DIR}/var/segments
+      - ${ARGOS_DIR}/var/egress:${ARGOS_DIR}/var/egress
+      - ${ARGOS_DIR}/var/broker:${ARGOS_DIR}/var/broker
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Servidor Kali para auditoría de servicios PROPIOS (UC-2, ADR-0013). Solo arranca con
+  # `--profile kali`. Sin puertos publicados al host; solo lo alcanza core-pentest por la red
+  # interna `kali`. El alcance autorizado y la aprobación humana los aplica Argos, no este
+  # contenedor. Para llegar a objetivos en tu LAN, añade aquí la red correspondiente.
+  kali:
+    build: {context: ., dockerfile: docker/kali/Dockerfile}
+    image: argos-kali:latest
+    profiles: [kali]
+    restart: unless-stopped
+    networks: [kali]
+    # Least-privilege: se descartan todas las capacidades y se reañaden solo las que el escaneo
+    # de red real necesita (raw sockets para SYN/ping, NET_ADMIN para algunas sondas).
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN]
+    security_opt: ["no-new-privileges"]
 
   # Solo para construir la imagen; los contenedores de sandbox se crean por sesión.
   sandbox-image:
@@ -69,11 +102,10 @@ services:
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
       - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
-      - ${ARGOS_DIR}/var/egress/main:${ARGOS_DIR}/var/egress/main
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_DIR}/var/broker/main:${ARGOS_DIR}/var/broker/main
       - ${ARGOS_CODEX_HOME:?ejecuta scripts/setup-env.sh}:/codex
       - ${ARGOS_AGE_DIR:?ejecuta scripts/setup-env.sh}:/age      # secretos: solo main
-    depends_on: [egress-main]
+    depends_on: [egress-main, broker]
 
   core-osint:
     <<: *core
@@ -83,23 +115,22 @@ services:
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
       - ${ARGOS_DIR}/var/segments/osint:${ARGOS_DIR}/var/segments/osint
-      - ${ARGOS_DIR}/var/egress/osint:${ARGOS_DIR}/var/egress/osint
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_DIR}/var/broker/osint:${ARGOS_DIR}/var/broker/osint
       - ${ARGOS_CODEX_HOME}:/codex
-    depends_on: [egress-osint]
+    depends_on: [egress-osint, broker]
 
   core-pentest:
     <<: *core
+    networks: [egress, kali]
     environment:
       ARGOS_SEGMENT: pentest
       PYTHONPATH: ${ARGOS_DIR}/src
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
       - ${ARGOS_DIR}/var/segments/pentest:${ARGOS_DIR}/var/segments/pentest
-      - ${ARGOS_DIR}/var/egress/pentest:${ARGOS_DIR}/var/egress/pentest
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_DIR}/var/broker/pentest:${ARGOS_DIR}/var/broker/pentest
       - ${ARGOS_CODEX_HOME}:/codex
-    depends_on: [egress-pentest]
+    depends_on: [egress-pentest, broker]
 
   # Núcleo persistente del segmento main (RF-04): API en var/segments/main/run/argos.sock,
   # scheduler y webhooks en 127.0.0.1:8787. Clientes: `scripts/argos core status|submit|attach`.
@@ -120,11 +151,10 @@ services:
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
       - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
-      - ${ARGOS_DIR}/var/egress/main:${ARGOS_DIR}/var/egress/main
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_DIR}/var/broker/main:${ARGOS_DIR}/var/broker/main
       - ${ARGOS_CODEX_HOME}:/codex
       - ${ARGOS_AGE_DIR}:/age
-    depends_on: [egress-main]
+    depends_on: [egress-main, broker]
 
   # Puente Matrix (RF-07): cliente de la API del núcleo `daemon`. Sin socket Docker ni clave age:
   # solo ve el socket de la API y su token (.env.matrix, ver scripts/matrix-login.sh).
@@ -135,7 +165,6 @@ services:
     restart: unless-stopped
     stdin_open: false
     tty: false
-    group_add: []
     env_file: [{path: .env.matrix, required: false}]
     environment:
       ARGOS_SEGMENT: main
@@ -159,3 +188,9 @@ networks:
     internal: true
   egress:
     name: argos_egress
+  # Red del servidor Kali: bridge (con salida) para poder auditar objetivos reales en LAN o
+  # Internet. La contención NO es de red aquí, sino el alcance autorizado + la aprobación humana
+  # + la auditoría que aplica Argos (ADR-0013). La comparten kali y core-pentest.
+  kali:
+    name: argos_kali
+    driver: bridge

@@ -1,6 +1,6 @@
 # ADR-0008 — Segmentación de seguridad por contenedor local
 
-- **Estado:** aceptado (parcial: ver "Pendiente")
+- **Estado:** aceptado
 - **Fecha:** 2026-09-27
 - **Requisitos:** RF-SEC-01..04, RF-SEC-08, RF-EX-08, RNF-06, RF-LEG-03/04, RNF-10
 
@@ -17,9 +17,19 @@
 - Retención: `argos purge` aplica `retention_days` del perfil (osint: 7) o el global; recoge
   blobs huérfanos y anota lo purgado. `argos backup` genera un snapshot cifrado con age.
 
+## Broker de sandbox (completado 2026-09-27)
+- Solo el servicio `broker` monta el socket Docker, y no tiene red (`network_mode: none`). Los
+  núcleos no tienen el socket ni el grupo docker: piden el sandbox de **su** sesión por
+  `var/broker/<seg>/broker.sock` (directorio 700, socket 600), y cada núcleo solo monta el suyo.
+- El segmento lo determina el socket por el que llega la petición: un núcleo comprometido no
+  puede crear ni usar sandboxes de otro segmento.
+- El broker valida cada petición (`sandbox/broker_policy.py`): id de sesión, dominios extra,
+  variables de entorno (las de proxy son reservadas), comando y timeout. Imagen, red, proxy,
+  límites y workspace montado salen de su configuración, nunca de la petición.
+- La política de egress la escribe solo el broker; los núcleos ya no montan `var/egress`.
+- Registro propio en `var/broker/broker.jsonl` (nombres de variables, nunca sus valores).
+- `sandbox.backend: docker` queda para desarrollo en el host.
+
 ## Pendiente
-- Los núcleos siguen montando el socket Docker para crear sandboxes. Eso da control del host a
-  cualquier núcleo comprometido, así que el aislamiento actual es de red, datos y secretos, **no**
-  de host. Falta mover la creación de sandboxes a un componente separado con API restringida.
 - Cifrado en reposo de la auditoría viva (hoy solo los backups van cifrados).
-- Aislamiento multi-máquina vía Herdr/SSH (Fase 3).
+- Aislamiento multi-máquina vía Herdr/SSH (`herdr --remote`) para perfiles sensibles.
