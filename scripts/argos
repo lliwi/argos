@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Ejecuta la CLI de Argos dentro del contenedor del núcleo. Ej.: scripts/argos audit list
+set -euo pipefail
+cd "$(dirname "$0")/.."
+# ARGOS_SEGMENT=osint|pentest selecciona el núcleo de ese segmento (por defecto main).
+SERVICE=core
+[[ "${ARGOS_SEGMENT:-main}" != main ]] && SERVICE="core-${ARGOS_SEGMENT}"
+exec docker compose run --rm "$SERVICE" "$@"

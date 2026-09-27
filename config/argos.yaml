@@ -1,0 +1,90 @@
+# Configuración global de Argos. Su hash se registra en cada sesión (RF-OB-10).
+data_dir: var
+
+model:
+  provider: codex          # codex | fake
+  name: null               # null = modelo por defecto de Codex CLI
+  timeout_s: 300
+  # Coste equivalente (USD por millón de tokens) para presupuestos: con suscripción el gasto real
+  # es 0, pero medir "lo que costaría" permite comparar configuraciones (RNF-03).
+  cost_per_mtok: {input: 1.25, cached_input: 0.125, output: 10.0}
+  # Routing (RF-CTX-05). Catálogo: `codex debug models`.
+  routes:
+    decide:   {model: gpt-6-sol,   effort: medium}   # decisiones del bucle
+    hard:     {model: gpt-6-astra, effort: high}     # escalado cuando el agente se atasca
+    internal: {model: gpt-6-luna,  effort: low}      # resumir salidas grandes, destilar
+  escalate_after_failures: 2       # N pasos fallidos seguidos => siguiente decisión con `hard`
+  summarize_observations_over: 12000   # salidas mayores se resumen con `internal` (+ ref)
+  # Recorte del sobrecoste fijo de Codex CLI (ADR-0007): 14.3k -> 4.2k tokens/llamada.
+  codex:
+    instructions_file: prompts/codex-engine.md   # sustituye el prompt base de Codex
+    overrides:
+      include_permissions_instructions: "false"
+      include_environment_context: "false"
+      include_apps_instructions: "false"
+      include_collaboration_mode_instructions: "false"
+      web_search: '"disabled"'
+      project_doc_max_bytes: "0"
+    # Features que añaden tools propias a Codex. Sin ellas solo puede decidir, no actuar.
+    disable_features: [apps, browser_use, browser_use_external, computer_use, image_generation,
+      in_app_browser, hooks, goals, code_mode_host, shell_tool, unified_exec, unified_exec_tty,
+      multi_agent, plugins, remote_plugin, view_image, sleep_tool, skill_search, tool_suggest,
+      guardian_approval, realtime_conversation, workspace_dependencies,
+      skill_mcp_dependency_install, shell_snapshot, in_app_local_automation,
+      tool_call_mcp_elicitation, mentions_v2]
+
+loop:
+  max_steps: 25            # RF-03
+  repeat_limit: 3          # misma acción+resultado N veces => loop_detected
+  observation_max_chars: 4000   # RF-CTX-03: lo que excede va a blob y se referencia
+  prune_failed_after: 2    # RF-CTX-06: errores antiguos se resumen en contexto
+  lazy_tools_over: 12      # RF-10: con más tools que esto, sus esquemas se cargan a demanda
+
+subagents:                 # RF-02
+  max_depth: 1             # un subagente no puede delegar a su vez
+  budget_tokens: 60000     # tope por subagente (y nunca más de lo que le quede al padre)
+
+budget:                    # RF-GOV-01 (tokens totales = prompt + completion)
+  session_tokens: 300000
+  day_tokens: 3000000
+  warn_ratio: 0.8
+
+approval:                  # RF-GOV-04/05
+  require_for: [destructive, offensive]
+  timeout_s: 120           # vencido => abort (fail-safe)
+
+concurrency:               # RF-GOV-03
+  max_sessions: 4
+
+# Segmentos de seguridad (RF-SEC-02, ADR-0008): cada uno con núcleo, red de sandbox, proxy de
+# egress y datos propios. Un perfil pertenece a un único segmento. Activo: $ARGOS_SEGMENT.
+segments:
+  main:    {profiles: [personal, infra]}
+  osint:   {profiles: [osint]}
+  pentest: {profiles: [pentest]}
+
+sandbox:
+  backend: docker          # docker (CLI directa). "broker" (ADR-0008) aún no implementado
+  image: argos-sandbox:latest
+  cpus: "1.0"
+  memory: 1g
+  pids: 256
+  command_timeout_s: 120
+
+egress:                    # RF-EX-04: allowlist por defecto (se suma la del perfil)
+  allowlist:
+    - pypi.org
+    - files.pythonhosted.org
+    - registry.npmjs.org
+    - deb.debian.org
+    - security.debian.org
+    - crates.io
+    - static.crates.io
+    - index.crates.io
+    - github.com
+    - objects.githubusercontent.com
+    - raw.githubusercontent.com
+
+audit:
+  redact_pii: true         # RF-OB-11
+  retention_days: 90       # RF-OB-13

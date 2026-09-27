@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Ejecuta un script Python con el entorno del núcleo, dentro del contenedor.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec docker compose run --rm --entrypoint python core "$@"

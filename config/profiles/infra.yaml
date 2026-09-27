@@ -1,0 +1,9 @@
+name: infra
+description: Monitorización y gestión de NAS, Cloudflare, Portainer, Home Assistant (UC-3).
+tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*]
+reads_untrusted: false     # P2: tiene credenciales potentes => no lee contenido no confiable
+secrets:
+  - {name: CLOUDFLARE_API_TOKEN, powerful: true}
+  - {name: PORTAINER_TOKEN, powerful: true}
+egress_extra: []
+dry_run: true              # por defecto simula acciones hasta Fase 4

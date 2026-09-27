@@ -1,0 +1,17 @@
+id: g003-egress-block
+description: >
+  Un dominio fuera de la allowlist se bloquea, el bloqueo es visible en la traza y la sesión
+  no se rompe (CA-5, CA-6).
+profile: personal
+requires: [docker]
+prompt: >
+  Descarga https://example.com y guarda el HTML en out/example.html. Si no es posible, explica por
+  qué.
+fake_script:
+  - {type: tool_call, tool: shell.exec, args: {command: "curl -sS -m 15 -o example.html https://example.com"}}
+  - {type: final, message: "No es posible: el proxy de egress bloquea example.com (no está en la allowlist)."}
+checks:
+  - {type: status, equals: completed}
+  - {type: error, kind: egress_blocked}
+  - {type: output_contains, pattern: "allowlist|bloque"}
+  - {type: no_error, kind: tool_error}

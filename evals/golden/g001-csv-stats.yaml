@@ -1,0 +1,25 @@
+id: g001-csv-stats
+description: Instala un paquete en el sandbox y lo usa en la misma tarea (CA-1, CA-2).
+profile: personal
+requires: [docker]
+prompt: >
+  Instala pandas en el sandbox. Crea out/datos.csv con una columna "n" y los números del 1 al 10,
+  calcula su media con pandas y guarda solo el número en out/media.txt.
+fake_script:
+  - {type: tool_call, tool: shell.exec, args: {command: "pip install -q pandas"}}
+  - type: tool_call
+    tool: shell.exec
+    args:
+      command: >-
+        python -c "import pandas as pd; df = pd.DataFrame({'n': range(1, 11)});
+        df.to_csv('datos.csv', index=False); open('media.txt','w').write(str(df.n.mean()))"
+  - {type: tool_call, tool: workspace.read_file, args: {path: out/media.txt}}
+  - {type: final, message: "La media es 5.5 (out/media.txt)."}
+checks:
+  - {type: status, equals: completed}
+  - {type: file_exists, path: out/datos.csv}
+  - {type: file_contains, path: out/media.txt, pattern: "^5\\.5"}
+  - {type: event, event: package_install, where: {package: pandas, status: ok}}
+  - {type: tool_called, tool: shell.exec, status: ok}
+  - {type: no_error, kind: tool_error}
+  - {type: max_steps, value: 10}

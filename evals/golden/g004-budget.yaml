@@ -1,0 +1,16 @@
+id: g004-budget
+description: Con un presupuesto mínimo la sesión se pausa y, sin aprobación, se aborta (CA-9).
+profile: personal
+session_budget_tokens: 400
+approvals: [denied]
+prompt: Lista el contenido del workspace varias veces y resume lo que ves.
+fake_script:
+  - {type: tool_call, tool: workspace.list, args: {path: out}}
+  - {type: tool_call, tool: workspace.list, args: {path: in}}
+  - {type: tool_call, tool: workspace.list, args: {}}
+  - {type: final, message: "vacío"}
+checks:
+  - {type: status, equals: aborted}
+  - {type: event, event: budget_event, where: {action: pause}}
+  - {type: event, event: approval, where: {action: budget_extend, decision: denied}}
+  - {type: error, kind: budget_exceeded}

@@ -1,0 +1,116 @@
+# Argos — despliegue segmentado (RNF-01, RF-SEC-02).
+#
+#   scripts/setup-env.sh                                  # .env con UID/GID/rutas
+#   docker compose --profile build --profile core build   # imágenes
+#   docker compose up -d egress-main egress-osint egress-pentest
+#   scripts/argos run "..."                               # segmento main
+#   ARGOS_SEGMENT=osint scripts/argos run -p osint "..."   # segmento osint
+#
+# Cada segmento (main, osint, pentest) tiene su propia red de sandbox (sin salida a Internet),
+# su proxy de egress con allowlist y su directorio de datos. Solo `main` recibe la clave age.
+#
+# LIMITACIÓN ACTUAL: los núcleos montan el socket Docker del host para crear sandboxes. Quien
+# tiene ese socket tiene control total del host, así que la separación entre segmentos es de red,
+# datos y secretos, no a nivel de host. El broker de sandbox (ADR-0008) está pendiente.
+name: argos
+
+x-egress: &egress
+  build: {context: ., dockerfile: docker/egress/Dockerfile, args: {UID: "${UID:-1000}"}}
+  image: argos-egress:latest
+  restart: unless-stopped
+  user: "${UID:-1000}:${GID:-1000}"
+  healthcheck:   # RNF-11
+    test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 3128), 2)"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+
+x-core: &core
+  build: {context: ., dockerfile: docker/core/Dockerfile}
+  image: argos-core:latest
+  profiles: [core]
+  user: "${UID:-1000}:${GID:-1000}"
+  group_add: ["${DOCKER_GID:-958}"]     # acceso al socket Docker (ver LIMITACIÓN)
+  working_dir: ${ARGOS_DIR:?ejecuta scripts/setup-env.sh}
+  networks: [egress]
+  stdin_open: true
+  tty: true
+
+services:
+  egress-main:
+    <<: *egress
+    volumes: ["./var/egress/main:/var/egress"]
+    networks: [sandbox_main, egress]
+  egress-osint:
+    <<: *egress
+    volumes: ["./var/egress/osint:/var/egress"]
+    networks: [sandbox_osint, egress]
+  egress-pentest:
+    <<: *egress
+    volumes: ["./var/egress/pentest:/var/egress"]
+    networks: [sandbox_pentest, egress]
+
+  # Solo para construir la imagen; los contenedores de sandbox se crean por sesión.
+  sandbox-image:
+    build: {context: docker/sandbox, args: {UID: "${UID:-1000}", GID: "${GID:-1000}"}}
+    image: argos-sandbox:latest
+    profiles: [build]
+    network_mode: none
+
+  # Núcleos: el proyecto se monta en solo lectura en la misma ruta que en el host; cada uno solo
+  # puede escribir en los datos y la política de egress de su segmento.
+  core:
+    <<: *core
+    environment:
+      ARGOS_SEGMENT: main
+      PYTHONPATH: ${ARGOS_DIR}/src
+      SOPS_AGE_KEY_FILE: /age/age.key
+      ARGOS_KEY_DIR: /age
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
+      - ${ARGOS_DIR}/var/egress/main:${ARGOS_DIR}/var/egress/main
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_CODEX_HOME:?ejecuta scripts/setup-env.sh}:/codex
+      - ${ARGOS_AGE_DIR:?ejecuta scripts/setup-env.sh}:/age      # secretos: solo main
+    depends_on: [egress-main]
+
+  core-osint:
+    <<: *core
+    environment:
+      ARGOS_SEGMENT: osint
+      PYTHONPATH: ${ARGOS_DIR}/src
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - ${ARGOS_DIR}/var/segments/osint:${ARGOS_DIR}/var/segments/osint
+      - ${ARGOS_DIR}/var/egress/osint:${ARGOS_DIR}/var/egress/osint
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_CODEX_HOME}:/codex
+    depends_on: [egress-osint]
+
+  core-pentest:
+    <<: *core
+    environment:
+      ARGOS_SEGMENT: pentest
+      PYTHONPATH: ${ARGOS_DIR}/src
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - ${ARGOS_DIR}/var/segments/pentest:${ARGOS_DIR}/var/segments/pentest
+      - ${ARGOS_DIR}/var/egress/pentest:${ARGOS_DIR}/var/egress/pentest
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ARGOS_CODEX_HOME}:/codex
+    depends_on: [egress-pentest]
+
+networks:
+  # Redes de sandbox: internas, sin salida. Cada una solo alcanza al proxy de su segmento.
+  sandbox_main:
+    name: argos_sandbox_main
+    internal: true
+  sandbox_osint:
+    name: argos_sandbox_osint
+    internal: true
+  sandbox_pentest:
+    name: argos_sandbox_pentest
+    internal: true
+  egress:
+    name: argos_egress

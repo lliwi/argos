@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a0e1e0-1d8d-73e0-b72a-0d3d2082a424"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"type\":\"tool_call\",\"tool\":\"shell.exec\",\"args_json\":\"{\\\"command\\\":\\\"find /tmp -type f -printf '.' | wc -c\\\"}\",\"message\":\"\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":14229,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":83,"reasoning_output_tokens":34}}

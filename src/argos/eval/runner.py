@@ -1,0 +1,148 @@
+"""Runner de evaluación (§11): ejecuta tareas doradas, puntúa y registra `eval_run`.
+
+- Reproducible en local y en CI con `--provider fake` (RF-EV-02).
+- Resultado por corrida en `var/evals/<run>.json`; comparación contra línea base y puerta de
+  regresión (RF-EV-04/05).
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from argos.audit.events import EvalRun
+from argos.audit.review import summarize
+from argos.audit.store import AuditStore
+from argos.config import Config
+from argos.core.session import SessionOptions, run_session
+from argos.eval.checks import run_check
+from argos.governance.approval import ScriptedApprover
+from argos.model.base import ModelProvider
+from argos.model.fake import FakeProvider
+
+
+@dataclass
+class TaskOutcome:
+    task_id: str
+    status: str                       # passed | failed | skipped | error
+    score: float = 0.0
+    session_id: str | None = None
+    checks: list[dict[str, Any]] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    reason: str = ""
+
+
+def load_suite(root: Path, suite: str) -> list[dict[str, Any]]:
+    directory = root / "evals" / suite
+    if not directory.is_dir():
+        raise FileNotFoundError(f"suite inexistente: {directory}")
+    return [yaml.safe_load(p.read_text()) for p in sorted(directory.glob("*.yaml"))]
+
+
+def docker_ready(image: str) -> str | None:
+    """None si Docker y la imagen están disponibles; si no, el motivo."""
+    if shutil.which("docker") is None:
+        return "docker no instalado"
+    probe = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
+    if probe.returncode != 0:
+        return f"imagen {image} no construida (docker compose build)"
+    return None
+
+
+async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provider_name: str,
+                   make_provider, suite: str, baseline_ref: str | None) -> TaskOutcome:
+    tid = task["id"]
+    if "docker" in task.get("requires", []) and (why := docker_ready(cfg.sandbox.image)):
+        return TaskOutcome(tid, "skipped", reason=why)
+    if provider_name == "fake":
+        if "fake_script" not in task:
+            return TaskOutcome(tid, "skipped", reason="sin fake_script para provider fake")
+        provider: ModelProvider = FakeProvider(task["fake_script"])
+    else:
+        provider = make_provider()
+
+    state_dir = cfg.data_path / "eval-state" / uuid.uuid4().hex[:12]
+    opts = SessionOptions(
+        task=task["prompt"], profile=task.get("profile", "personal"), channel="eval",
+        dry_run=task.get("dry_run"), allow_domains=task.get("allow_domains", []),
+        session_budget_tokens=task.get("session_budget_tokens"),
+        input_files=task.get("input_files", {}), state_dir=state_dir)
+    try:
+        result = await run_session(opts, cfg, provider, store=store,
+                                   approver=ScriptedApprover(task.get("approvals", [])))
+    except Exception as exc:  # noqa: BLE001 — una tarea rota no detiene la suite
+        return TaskOutcome(tid, "error", reason=f"{type(exc).__name__}: {exc}")
+    finally:
+        shutil.rmtree(state_dir, ignore_errors=True)
+
+    events = store.events(result.session_id)
+    checks = [run_check(spec, result, events) for spec in task.get("checks", [])]
+    scored = [c for c in checks if c.required] or checks
+    score = sum(c.passed for c in scored) / len(scored) if scored else 0.0
+    passed = all(c.passed for c in checks if c.required)
+    s = summarize(store, result.session_id)
+    metrics = {"steps": s.steps, "tokens": s.tokens, "cost": round(s.cost, 6),
+               "tool_calls": s.tool_calls, "tool_errors": s.tool_errors,
+               "latency_ms": s.latency_ms, "duration_s": round(s.duration_s, 2)}
+    store.emit(EvalRun(session_id=result.session_id, trace_id=result.session_id, suite=suite,
+                       task_id=tid, score=score, passed=passed, baseline_ref=baseline_ref,
+                       checks=[c.as_dict() for c in checks], metrics=metrics))
+    return TaskOutcome(tid, "passed" if passed else "failed", score, result.session_id,
+                       [c.as_dict() for c in checks], metrics)
+
+
+async def run_suite(cfg: Config, store: AuditStore, suite: str, provider_name: str,
+                    make_provider, only: list[str] | None = None,
+                    baseline_ref: str | None = None) -> dict[str, Any]:
+    tasks = [t for t in load_suite(cfg.root, suite) if not only or t["id"] in only]
+    outcomes = [await run_task(t, cfg, store, provider_name, make_provider, suite, baseline_ref)
+                for t in tasks]
+    ran = [o for o in outcomes if o.status in ("passed", "failed")]
+    summary = {
+        "run_id": datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6],
+        "suite": suite, "provider": provider_name, "config_hash": cfg.config_hash(),
+        "aggregate": {
+            "tasks": len(outcomes), "ran": len(ran),
+            "success_rate": round(sum(o.status == "passed" for o in ran) / len(ran), 3)
+            if ran else 0.0,
+            "mean_score": round(sum(o.score for o in ran) / len(ran), 3) if ran else 0.0,
+            "mean_tokens": round(sum(o.metrics["tokens"] for o in ran) / len(ran)) if ran else 0,
+            "mean_steps": round(sum(o.metrics["steps"] for o in ran) / len(ran), 2) if ran else 0,
+            "mean_cost": round(sum(o.metrics["cost"] for o in ran) / len(ran), 6) if ran else 0,
+        },
+        "tasks": [asdict(o) for o in outcomes],
+    }
+    out_dir = cfg.data_path / "evals"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{summary['run_id']}.json").write_text(json.dumps(summary, indent=2))
+    return summary
+
+
+def compare_to_baseline(current: dict[str, Any], baseline: dict[str, Any],
+                        token_tolerance: float = 0.2) -> list[str]:
+    """Puerta de regresión (RF-EV-05): lista de regresiones; vacía => se puede promover."""
+    regressions = []
+    base_tasks = {t["task_id"]: t for t in baseline["tasks"]}
+    for t in current["tasks"]:
+        b = base_tasks.get(t["task_id"])
+        if not b or b["status"] not in ("passed", "failed") or t["status"] == "skipped":
+            continue
+        if b["status"] == "passed" and t["status"] != "passed":
+            regressions.append(f"{t['task_id']}: pasaba y ahora {t['status']}")
+        elif t["score"] < b["score"]:
+            regressions.append(f"{t['task_id']}: score {b['score']:.2f} → {t['score']:.2f}")
+        bt, ct = b["metrics"].get("tokens", 0), t["metrics"].get("tokens", 0)
+        if bt and ct > bt * (1 + token_tolerance):
+            regressions.append(f"{t['task_id']}: tokens {bt} → {ct} (>{token_tolerance:.0%})")
+    ca, ba = current["aggregate"], baseline["aggregate"]
+    if ca["success_rate"] < ba["success_rate"]:
+        regressions.append(f"success_rate {ba['success_rate']} → {ca['success_rate']}")
+    return regressions

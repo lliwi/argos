@@ -1,0 +1,16 @@
+id: g002-reminder
+description: Crea y lista un recordatorio vía la tool MCP de recordatorios (UC-4, RF-09).
+profile: personal
+prompt: >
+  Crea un recordatorio "renovar el dominio" para el 2026-10-15 y después lista los pendientes
+  para confirmar que está.
+fake_script:
+  - {type: tool_call, tool: reminders.add, args: {text: "renovar el dominio", due: "2026-10-15"}}
+  - {type: tool_call, tool: reminders.list, args: {}}
+  - {type: final, message: "Recordatorio #1 'renovar el dominio' creado para el 2026-10-15."}
+checks:
+  - {type: status, equals: completed}
+  - {type: tool_called, tool: reminders.add, status: ok}
+  - {type: event, event: tool_call, where: {tool: reminders.list, status: ok}}
+  - {type: output_contains, pattern: "renovar el dominio"}
+  - {type: max_steps, value: 5}

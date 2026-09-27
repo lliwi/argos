@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+# Estado de ejecución local
+var/
+# Secretos: solo se versionan los cifrados (*.sops.yaml)
+secrets/*
+!secrets/*.sops.yaml
+!secrets/README.md
+*.agekey
+# Rutas/IDs locales para compose (generado por scripts/setup-env.sh)
+.env
