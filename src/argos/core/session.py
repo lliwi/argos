@@ -33,7 +33,9 @@ from argos.state import StateStore, render_memories
 from argos.tools.inventory import InventoryTool
 from argos.tools.mcp_client import (
     McpConnections,
+    homeassistant_server,
     kali_server,
+    media_server,
     portainer_server,
     reminders_server,
 )
@@ -128,9 +130,11 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
     reg.register(MemorySearch(state))
     reg.register(MemoryUpdate(state))
     if cfg.subagents.max_depth > 0:
-        async def _noop(_task: str, _budget: int):  # solo para poder listar la tool
+        async def _noop(_task: str, _budget: int, _target: str | None = None):
             return ("", "completed", "", 0, 0)
-        reg.register(DelegateTool(_noop, cfg.subagents.budget_tokens))
+        targets = {n: cfg.profile(n).description for n in profile.delegate_profiles
+                   if n in cfg.profiles and cfg.allows_profile(n)}
+        reg.register(DelegateTool(_noop, cfg.subagents.budget_tokens, profile.name, targets))
     mcp = McpConnections()
     try:
         if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
@@ -148,6 +152,20 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
             for tool in await mcp.connect(portainer_server(
                     pt.get("url", ""), inv.secret("portainer", "api_key") or "",
                     int(pt.get("endpoint", 1)), True)):
+                reg.register(tool)
+        if profile.allows_tool("homeassistant.list_entities"):
+            ha = inv.get("homeassistant")
+            ha_token = (inv.secret("homeassistant", "token")
+                        or inv.secret("homeassistant", "api_key") or "")
+            for tool in await mcp.connect(homeassistant_server(
+                    ha.get("url", ""), ha_token, True)):
+                reg.register(tool)
+        if profile.allows_tool("media.search"):
+            jk, tr = inv.get("jackett"), inv.get("transmission")
+            for tool in await mcp.connect(media_server(
+                    jk.get("url", ""), inv.secret("jackett", "api_key") or "",
+                    tr.get("url", ""), tr.get("username", ""),
+                    inv.secret("transmission", "password") or "", True)):
                 reg.register(tool)
         reg = reg.for_profile(profile)
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
@@ -241,17 +259,40 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
                     pt.get("url", ""), inventory.secret("portainer", "api_key") or "",
                     int(pt.get("endpoint", 1)), dry_run)):
                 tools.register(tool)
+        if profile.allows_tool("homeassistant.list_entities"):
+            ha = inventory.get("homeassistant")
+            ha_token = (inventory.secret("homeassistant", "token")
+                        or inventory.secret("homeassistant", "api_key") or "")
+            for tool in await mcp.connect(homeassistant_server(
+                    ha.get("url", ""), ha_token, dry_run)):
+                tools.register(tool)
+        if profile.allows_tool("media.search"):
+            jk, tr = inventory.get("jackett"), inventory.get("transmission")
+            for tool in await mcp.connect(media_server(
+                    jk.get("url", ""), inventory.secret("jackett", "api_key") or "",
+                    tr.get("url", ""), tr.get("username", ""),
+                    inventory.secret("transmission", "password") or "", dry_run)):
+                tools.register(tool)
 
         session_limit = opts.session_budget_tokens or cfg.budget.session_tokens
         budget = BudgetTracker(sid, session_limit, cfg.budget.day_tokens, cfg.budget.warn_ratio,
                                tokens_spent_today(store), lambda e: store.emit(e))
 
         if opts.depth < cfg.subagents.max_depth:
-            async def spawn(task: str, limit: int) -> tuple[str, str, str, int, int]:
+            async def spawn(task: str, limit: int, target: str | None = None
+                            ) -> tuple[str, str, str, int, int]:
+                # El perfil destino debe estar autorizado por el perfil actual y pertenecer a
+                # este segmento (RF-SEC-02): no se cruza el aislamiento por delegación.
+                sub_profile = target or profile.name
+                if sub_profile != profile.name and (
+                        sub_profile not in profile.delegate_profiles
+                        or not cfg.allows_profile(sub_profile)):
+                    raise ValueError(f"delegación a {sub_profile!r} no permitida")
+                child_dry = cfg.profile(sub_profile).dry_run if target else dry_run
                 remaining = max(1, budget.session_limit - budget.spent)
                 child = await run_session(
-                    SessionOptions(task=task, profile=profile.name, channel=opts.channel,
-                                   dry_run=dry_run, parent_session_id=sid,
+                    SessionOptions(task=task, profile=sub_profile, channel=opts.channel,
+                                   dry_run=child_dry, parent_session_id=sid,
                                    allow_domains=opts.allow_domains,
                                    session_budget_tokens=min(limit, remaining),
                                    state_dir=opts.state_dir, workspace=workspace,
@@ -260,7 +301,9 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
                     sandbox_factory=sandbox_factory, on_progress=on_progress)
                 return (child.session_id, child.status, child.message, child.steps,
                         child.tokens)
-            tools.register(DelegateTool(spawn, cfg.subagents.budget_tokens))
+            targets = {n: cfg.profile(n).description for n in profile.delegate_profiles
+                       if n in cfg.profiles and cfg.allows_profile(n)}
+            tools.register(DelegateTool(spawn, cfg.subagents.budget_tokens, profile.name, targets))
 
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
         context_ref: list[ContextManager] = []

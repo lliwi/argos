@@ -1,0 +1,15 @@
+name: orchestrator
+description: >
+  Asistente general: entiende lo que pides y lo enruta al especialista adecuado. No ejecuta
+  acciones de infraestructura por sí mismo; delega en un subagente con el perfil correcto.
+# Sin herramientas potentes propias: solo conversa, recuerda y delega. Las capacidades reales
+# (Portainer, Home Assistant, shell…) las aporta el subagente del perfil destino, con sus
+# controles (aprobación humana donde aplique).
+tools: [agent.delegate, memory.*, scratchpad.*, context.*, infra.inventory]
+reads_untrusted: false
+secrets: []
+egress_extra: []
+powerful: true             # puede desencadenar capacidad potente vía delegación (P2)
+dry_run: false
+# Especialistas a los que puede delegar (mismo segmento). osint/pentest viven en otros segmentos.
+delegate_profiles: [personal, infra]

@@ -28,6 +28,10 @@ def test_policy_validation(tmp_path):
     with pytest.raises(policy.PolicyError, match="workspace"):
         policy.workspace(tmp_path, "a" * 32)
     assert policy.domains(["PyPI.org", "*.github.com"]) == ["pypi.org", "*.github.com"]
+    # IP y CIDR válidos; comodín general no.
+    assert policy.domains(["192.168.0.0/16", "10.1.2.3"]) == ["192.168.0.0/16", "10.1.2.3"]
+    with pytest.raises(policy.PolicyError):
+        policy.domains(["*"])
 
 
 class FakeDocker(FakeSandbox):

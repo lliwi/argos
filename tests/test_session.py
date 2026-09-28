@@ -303,3 +303,42 @@ async def test_secrets_never_reach_model_context(cfg, store, fake_sandbox):
     assert "[REDACTED:" in provider.requests[-1].render()
     jsonl = (store.jsonl_dir / f"{res.session_id}.jsonl").read_text()
     assert canary not in jsonl
+
+
+async def test_orchestrator_delegates_to_specialist_profile(root, store, fake_sandbox):
+    """El orquestador enruta a un perfil especialista; el subagente corre con ESE perfil."""
+    from argos.config import load_config
+
+    cfg = load_config(root, {"data_dir": str(root / "var")})
+    # guion compartido: padre (orchestrator) delega a infra; hijo (infra) usa infra.inventory.
+    provider = FakeProvider([
+        call("agent.delegate", profile="infra", task="dime qué infra hay configurada"),
+        call("infra.inventory"),                          # lo ejecuta el subagente infra
+        final("infra: portainer configurado"),            # final del subagente
+        final("Te lo resume el especialista de infra."),  # final del orquestador
+    ])
+    res = await run_session(SessionOptions(task="qué tengo en casa", profile="orchestrator"),
+                            cfg, provider, store=store, sandbox_factory=lambda: fake_sandbox)
+    assert res.status == "completed"
+    children = store.children(res.session_id)
+    assert len(children) == 1
+    child_start = store.events(children[0], ["session"])[0]
+    assert child_start.agent_profile == "infra"           # el subagente corre como infra
+    # el subagente pudo usar una tool de infra que el orquestador no tiene
+    assert any(c.tool == "infra.inventory" for c in store.events(children[0], ["tool_call"]))
+    assert not any(c.tool == "infra.inventory"
+                   for c in store.events(res.session_id, ["tool_call"]))
+
+
+async def test_orchestrator_cannot_delegate_to_unlisted_profile(root, store, fake_sandbox):
+    """RF-SEC-02: no se puede delegar a un perfil fuera de la lista (p. ej. de otro segmento)."""
+    from argos.config import load_config
+
+    cfg = load_config(root, {"data_dir": str(root / "var")})
+    provider = FakeProvider([call("agent.delegate", profile="pentest", task="escanea algo"),
+                             final("no pude")])
+    res = await run_session(SessionOptions(task="x", profile="orchestrator"), cfg, provider,
+                            store=store, sandbox_factory=lambda: fake_sandbox)
+    dele = store.events(res.session_id, ["tool_call"])[0]
+    assert dele.status == "error" and dele.error_kind == ErrorKind.VALIDATION_ERROR
+    assert store.children(res.session_id) == []           # no se creó ningún subagente

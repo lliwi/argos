@@ -128,3 +128,28 @@ def portainer_server(url: str, api_key: str, endpoint: int, dry_run: bool,
              "ARGOS_PORTAINER_URL": url or "", "ARGOS_PORTAINER_KEY": api_key or "",
              "ARGOS_PORTAINER_ENDPOINT": str(endpoint), "ARGOS_PORTAINER_VERIFY": "1" if verify
              else "0", "ARGOS_PORTAINER_DRY_RUN": "1" if dry_run else "0"})
+
+
+def homeassistant_server(url: str, token: str, dry_run: bool,
+                         verify: bool = True) -> McpServerSpec:
+    """MCP de Home Assistant (UC-3). URL y token vienen del inventario, nunca del modelo."""
+    return McpServerSpec(
+        name="homeassistant", command=sys.executable,
+        args=["-m", "argos.mcp_servers.homeassistant.server"],
+        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+             "ARGOS_HA_URL": url or "", "ARGOS_HA_TOKEN": token or "",
+             "ARGOS_HA_VERIFY": "1" if verify else "0",
+             "ARGOS_HA_DRY_RUN": "1" if dry_run else "0"})
+
+
+def media_server(jackett_url: str, jackett_key: str, transmission_url: str,
+                 tr_user: str, tr_pass: str, dry_run: bool) -> McpServerSpec:
+    """MCP de descargas (Jackett + Transmission, UC-3). URLs y api key del inventario."""
+    return McpServerSpec(
+        name="media", command=sys.executable,
+        args=["-m", "argos.mcp_servers.media.server"],
+        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+             "ARGOS_JACKETT_URL": jackett_url or "", "ARGOS_JACKETT_KEY": jackett_key or "",
+             "ARGOS_TRANSMISSION_URL": transmission_url or "",
+             "ARGOS_TRANSMISSION_USER": tr_user or "", "ARGOS_TRANSMISSION_PASS": tr_pass or "",
+             "ARGOS_MEDIA_DRY_RUN": "1" if dry_run else "0"})

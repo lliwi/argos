@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -22,11 +23,29 @@ log = logging.getLogger("argos.egress")
 
 def host_allowed(host: str, allowlist: list[str]) -> bool:
     host = host.lower().rstrip(".")
-    for dom in allowlist:
-        dom = dom.lower().lstrip("*.").rstrip(".")
+    host_ip = _as_ip(host)
+    for entry in allowlist:
+        entry = entry.strip().lower()
+        if "/" in entry or _as_ip(entry) is not None:
+            # Entrada IP o rango CIDR: solo aplica si el destino es una IP dentro del rango.
+            if host_ip is not None:
+                try:
+                    if host_ip in ipaddress.ip_network(entry, strict=False):
+                        return True
+                except ValueError:
+                    pass
+            continue
+        dom = entry.lstrip("*.").rstrip(".")
         if host == dom or host.endswith("." + dom):
             return True
     return False
+
+
+def _as_ip(host: str):
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
 
 
 class Policy:

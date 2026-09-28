@@ -82,8 +82,11 @@ libres. La red de Kali es bridge para poder auditar objetivos reales.
 ## Infraestructura propia: inventario y Portainer (UC-3)
 Guarda IPs, claves, usuarios y notas en `secrets/inventory.yaml` (git-ignored, no van por el chat):
 ```bash
-cp secrets/inventory.example.yaml secrets/inventory.yaml && chmod 600 secrets/inventory.yaml
-# edita: services.portainer.url (http://192.168.0.20:9000), endpoint y api_key
+# opción A: editar el fichero a mano (cp del ejemplo, chmod 600)
+# opción B (recomendada para la clave): prompt oculto que no pasa por el chat ni la auditoría:
+argos inventory set portainer url http://192.168.0.20:9000
+argos inventory set portainer endpoint 1
+argos inventory set portainer api_key            # pide la clave de forma oculta
 ```
 Los secretos se inyectan a las herramientas y nunca llegan al modelo ni a la auditoría; el agente
 ve solo la documentación con `infra.inventory`. Portainer (perfil infra, segmento main):
@@ -92,6 +95,19 @@ ARGOS_SEGMENT=main scripts/argos core submit -p infra "lista mis contenedores y 
 ```
 Listar/inspeccionar/logs no piden aprobación; parar/arrancar/reiniciar sí (y se simulan con
 `dry_run: true` por defecto). Ver [ADR-0014](docs/adr/0014-inventario-y-portainer.md).
+
+**Home Assistant** (mismo patrón, [ADR-0015](docs/adr/0015-mcp-home-assistant.md)): añade el
+servicio `homeassistant` al inventario (url + token de larga duración) y usa `homeassistant.*`
+(listar entidades y estados sin aprobación; `call_service` para encender/apagar con aprobación).
+
+## Acceso de red del sandbox
+Por defecto el sandbox solo sale a repositorios de paquetes (RF-EX-04). Los perfiles `personal` e
+`infra` incluyen además las redes locales (RFC1918: `192.168.0.0/16`, `10.0.0.0/8`,
+`172.16.0.0/12`) en su `egress_extra`, para llegar a servicios de casa por IP. Para un host
+externo concreto, añade su dominio al `egress_extra` del perfil; no hay un modo "abrir todo"
+(sería quitar la defensa frente a exfiltración). Las entradas admiten dominio, `*.dominio`, IP o
+rango CIDR. Los perfiles que leen contenido no confiable (osint, pentest) mantienen el egress
+restringido.
 
 ## Comandos
 | Comando | Qué hace |

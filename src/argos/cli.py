@@ -216,7 +216,7 @@ def console_cmd() -> None:
 
 @app.command("chat")
 def chat_cmd(
-    profile: Annotated[str, typer.Option("--profile", "-p")] = "personal",
+    profile: Annotated[str, typer.Option("--profile", "-p")] = "orchestrator",
     thread: Annotated[str | None, typer.Option(help="Retomar un hilo existente")] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Detalle técnico")] = False,
 ) -> None:
@@ -337,6 +337,45 @@ def matrix_cmd() -> None:
 memory_app = typer.Typer(help="Memoria durable: inspeccionar, editar y borrar (RF-18).",
                          no_args_is_help=True)
 app.add_typer(memory_app, name="memory")
+
+inventory_app = typer.Typer(help="Inventario de infraestructura (secrets/inventory.yaml).",
+                            no_args_is_help=True)
+app.add_typer(inventory_app, name="inventory")
+
+
+@inventory_app.command("show")
+def inventory_show() -> None:
+    """Muestra el inventario sin secretos (solo indica cuáles hay configurados)."""
+    from argos.inventory import load_inventory
+
+    view = load_inventory(load_config().root).public_view()
+    if not view:
+        console.print("[dim]inventario vacío (secrets/inventory.yaml)[/]")
+        return
+    console.print_json(json.dumps(view, ensure_ascii=False))
+
+
+@inventory_app.command("set")
+def inventory_set(
+    service: str,
+    field: str,
+    value: Annotated[str | None, typer.Argument(help="Valor; omitir si es secreto")] = None,
+) -> None:
+    """Fija un campo del inventario. Para campos secretos (api_key, token, password…) omite el
+    valor y se pedirá por un prompt oculto: la clave no pasa por el chat ni por la auditoría."""
+    from argos.inventory_edit import is_secret, set_field
+
+    if is_secret(field):
+        if value is not None:
+            console.print("[red]No pases secretos como argumento (quedan en el historial de "
+                          "shell). Omite el valor y se pedirá de forma oculta.[/]")
+            raise typer.Exit(2)
+        value = typer.prompt(f"{service}.{field}", hide_input=True, confirmation_prompt=True)
+    elif value is None:
+        raise typer.BadParameter("indica el valor para un campo no secreto")
+    set_field(load_config().root, service, field, value)
+    shown = "········" if is_secret(field) else value
+    console.print(f"[green]guardado[/] {service}.{field} = {shown} (secrets/inventory.yaml)")
 
 
 def _state():

@@ -134,6 +134,15 @@ def test_host_allowlist():
     assert not host_allowed("evilpypi.org", allow) and not host_allowed("example.com", allow)
 
 
+def test_host_allowlist_ip_and_cidr():
+    allow = ["pypi.org", "192.168.0.0/16", "10.1.2.3"]
+    assert host_allowed("192.168.0.20", allow) and host_allowed("192.168.5.9", allow)
+    assert host_allowed("10.1.2.3", allow) and not host_allowed("10.1.2.4", allow)
+    assert not host_allowed("8.8.8.8", allow)          # externo: no está permitido
+    assert not host_allowed("192.168.0.20", ["pypi.org"])   # sin rango: bloqueado
+    assert host_allowed("pypi.org", allow)             # dominios siguen funcionando
+
+
 # --- perfiles (P2) -----------------------------------------------------------------------------
 
 def test_profile_rejects_untrusted_plus_powerful_secrets():

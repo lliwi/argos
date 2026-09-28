@@ -146,6 +146,8 @@ class Profile(BaseModel):
     # Perfil con capacidad potente (credenciales de servicios, gestión de infra vía inventario…),
     # aunque sus secretos no vivan en `secrets:` sino en el inventario. Gobierna P2 (RF-SEC-03).
     powerful: bool = False
+    # Perfiles a los que este perfil puede delegar subtareas (orquestador → especialistas).
+    delegate_profiles: list[str] = Field(default_factory=list)
 
     @property
     def is_powerful(self) -> bool:

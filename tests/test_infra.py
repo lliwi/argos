@@ -137,11 +137,11 @@ services:
     def p(tool, **a):
         return {"type": "tool_call", "tool": tool, "args": a}
 
-    # dry-run (por defecto en infra): la acción no se ejecuta y no pide aprobación.
+    # dry-run explícito: la acción no se ejecuta y no pide aprobación.
     prov = FakeProvider([p("infra.inventory"), p("portainer.stop_container", container_id="web"),
                          {"type": "final", "message": "ok"}])
-    res = await run_session(SessionOptions(task="mira mi infra", profile="infra"), cfg, prov,
-                            store=store, sandbox_factory=lambda: fake_sandbox)
+    res = await run_session(SessionOptions(task="mira mi infra", profile="infra", dry_run=True),
+                            cfg, prov, store=store, sandbox_factory=lambda: fake_sandbox)
     calls = store.events(res.session_id, ["tool_call"])
     inv_call = next(c for c in calls if c.tool == "infra.inventory")
     assert "192.168.0.20" in inv_call.result_preview and "NAS de casa" in inv_call.result_preview
@@ -159,3 +159,81 @@ services:
         approver=ScriptedApprover(["denied"]), sandbox_factory=lambda: fake_sandbox)
     appr = store.events(res2.session_id, ["approval"])
     assert appr and appr[0].risk_class.value == "destructive" and appr[0].decision == "denied"
+
+
+async def test_homeassistant_rest_client():
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, request.url.path))
+        if request.url.path == "/api/states":
+            return httpx.Response(200, json=[
+                {"entity_id": "light.salon", "state": "off",
+                 "attributes": {"friendly_name": "Salón"}},
+                {"entity_id": "sensor.temp", "state": "21.5", "attributes": {}}])
+        return httpx.Response(200, json={"ok": True})
+
+    from argos.mcp_servers.homeassistant.rest import HomeAssistantClient
+
+    client = HomeAssistantClient("http://ha:8123", "tok",
+                                 transport=httpx.MockTransport(handler))
+    states = await client.states()
+    assert states[0]["entity_id"] == "light.salon"
+    await client.call_service("light", "turn_on", "light.salon")
+    await client.aclose()
+    assert ("POST", "/api/services/light/turn_on") in calls
+
+
+def _ha_env(monkeypatch, url="http://ha:8123", token="tok", dry="0"):
+    for name, val in {"ARGOS_HA_URL": url, "ARGOS_HA_TOKEN": token,
+                      "ARGOS_HA_DRY_RUN": dry}.items():
+        monkeypatch.setenv(name, val)
+
+
+async def test_homeassistant_not_configured(monkeypatch):
+    monkeypatch.delenv("ARGOS_HA_URL", raising=False)
+    monkeypatch.delenv("ARGOS_HA_TOKEN", raising=False)
+    from argos.mcp_servers.homeassistant import server as ha
+
+    assert "NO CONFIGURADO" in await ha.list_entities()
+    assert "NO CONFIGURADO" in await ha.call_service("light", "turn_on", "light.x")
+
+
+async def test_homeassistant_action_validation_dry_run_execute(monkeypatch):
+    from argos.mcp_servers.homeassistant import server as ha
+
+    _ha_env(monkeypatch, dry="1")
+    assert "[dry-run]" in await ha.call_service("light", "turn_on", "light.salon")
+    # formato inválido se rechaza antes de tocar la red
+    assert "RECHAZADO" in await ha.call_service("light", "turn on", "light.salon")
+    assert "RECHAZADO" in await ha.call_service("light", "turn_on", "malo")
+
+    _ha_env(monkeypatch, dry="0")
+    done = {}
+
+    class FakeClient:
+        async def call_service(self, d, s, e):
+            done["call"] = (d, s, e)
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(ha, "_client", lambda: FakeClient())
+    assert "light.turn_on ejecutado" in await ha.call_service("light", "turn_on", "light.salon")
+    assert done["call"] == ("light", "turn_on", "light.salon")
+
+
+async def test_homeassistant_in_infra_catalog(root, store, fake_sandbox):
+    from argos.core.session import catalog
+
+    items = await catalog(load_cfg(root), "infra")
+    names = {t["name"] for t in items}
+    assert "homeassistant.call_service" in names and "homeassistant.list_entities" in names
+    action = next(t for t in items if t["name"] == "homeassistant.call_service")
+    assert action["risk"] == "destructive"
+
+
+def load_cfg(root):
+    from argos.config import load_config
+
+    return load_config(root, {"data_dir": str(root / "var")})

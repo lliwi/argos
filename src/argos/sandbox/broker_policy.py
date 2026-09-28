@@ -7,6 +7,7 @@ decide el broker con su propia configuración.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import Any
@@ -39,14 +40,24 @@ def workspace(segment_root: Path, sid: str) -> Path:
     return path
 
 
+def _is_ip_or_cidr(entry: str) -> bool:
+    try:
+        ipaddress.ip_network(entry, strict=False)
+        return True
+    except ValueError:
+        return False
+
+
 def domains(value: Any) -> list[str]:
     value = value or []
     if not isinstance(value, list) or len(value) > MAX_DOMAINS:
-        raise PolicyError(f"allow_extra: lista de hasta {MAX_DOMAINS} dominios")
+        raise PolicyError(f"allow_extra: lista de hasta {MAX_DOMAINS} entradas")
     out = []
     for item in value:
-        if not isinstance(item, str) or not DOMAIN_RE.match(item.lower()):
-            raise PolicyError(f"dominio inválido: {item!r}")
+        # Dominios (con comodín de subdominio) o IP/rango CIDR concretos; nunca comodín general.
+        if not isinstance(item, str) or not (
+                DOMAIN_RE.match(item.lower()) or _is_ip_or_cidr(item)):
+            raise PolicyError(f"entrada de egress inválida: {item!r}")
         out.append(item.lower())
     return out
 

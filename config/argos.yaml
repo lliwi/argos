@@ -63,7 +63,7 @@ concurrency:               # RF-GOV-03
 # Segmentos de seguridad (RF-SEC-02, ADR-0008): cada uno con núcleo, red de sandbox, proxy de
 # egress y datos propios. Un perfil pertenece a un único segmento. Activo: $ARGOS_SEGMENT.
 segments:
-  main:    {profiles: [personal, infra]}
+  main:    {profiles: [orchestrator, personal, infra]}
   osint:   {profiles: [osint]}
   pentest: {profiles: [pentest]}
 

@@ -14,36 +14,55 @@ from argos.audit.events import ErrorKind, RiskClass
 from argos.tools.base import Tool, ToolContext, ToolError, ToolResult
 
 # (tarea, presupuesto de tokens) -> (session_id, status, message, steps, tokens)
-Spawner = Callable[[str, int], Awaitable[tuple[str, str, str, int, int]]]
+Spawner = Callable[[str, int, "str | None"], Awaitable[tuple[str, str, str, int, int]]]
 
 
 class DelegateTool(Tool):
     name = "agent.delegate"
-    description = (
-        "Delega una subtarea acotada a un subagente con contexto limpio (mismo perfil y "
-        "workspace). Devuelve solo su resultado final. Úsalo para investigar o procesar algo "
-        "voluminoso sin llenar tu contexto.")
     parameters = {
         "type": "object", "required": ["task"],
         "properties": {
             "task": {"type": "string", "description": "Subtarea autocontenida y verificable"},
+            "profile": {"type": "string",
+                        "description": "Perfil especialista al que delegar (ver descripción)"},
             "budget_tokens": {"type": "integer", "description": "Tope opcional de tokens"},
         },
     }
     risk_class = RiskClass.WRITE
     idempotent = False
 
-    def __init__(self, spawn: Spawner, default_budget: int) -> None:
+    def __init__(self, spawn: Spawner, default_budget: int, own_profile: str,
+                 delegate_profiles: dict[str, str] | None = None) -> None:
         self._spawn = spawn
         self._default_budget = default_budget
+        self._own = own_profile
+        # {perfil: descripción de sus capacidades} — los perfiles a los que se puede delegar.
+        self._targets = delegate_profiles or {}
+        if self._targets:
+            catalogo = "; ".join(f"{n}: {d}" for n, d in self._targets.items())
+            self.description = (
+                "Delega una subtarea a un subagente especialista con contexto limpio, indicando "
+                f"su `profile`. Especialistas disponibles → {catalogo}. Cada uno tiene sus "
+                "herramientas, credenciales y controles (aprobación humana donde aplique). "
+                "Devuelve solo el resultado. Enruta cada tarea al especialista adecuado.")
+        else:
+            self.description = (
+                "Delega una subtarea acotada a un subagente con contexto limpio (mismo perfil y "
+                "workspace). Devuelve solo su resultado final. Útil para procesar algo voluminoso "
+                "sin llenar tu contexto.")
 
     async def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         task = str(args.get("task", "")).strip()
         if not task:
             raise ToolError("task vacía", ErrorKind.VALIDATION_ERROR)
+        target = str(args.get("profile") or "").strip() or None
+        if target and target != self._own and target not in self._targets:
+            raise ToolError(
+                f"no puedes delegar al perfil {target!r}. Permitidos: "
+                f"{sorted(self._targets) or '(ninguno)'}", ErrorKind.VALIDATION_ERROR)
         budget = int(args.get("budget_tokens") or self._default_budget)
         budget = max(1, min(budget, self._default_budget))
-        sid, status, message, steps, tokens = await self._spawn(task, budget)
+        sid, status, message, steps, tokens = await self._spawn(task, budget, target)
         output = (f"[subagente {sid[:12]} · {status} · {steps} pasos · {tokens} tokens]\n"
                   f"{message}")
         return ToolResult(output, ok=status == "completed",
