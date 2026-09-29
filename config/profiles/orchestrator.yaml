@@ -5,7 +5,8 @@ description: >
 # Sin herramientas potentes propias: solo conversa, recuerda y delega. Las capacidades reales
 # (Portainer, Home Assistant, shell…) las aporta el subagente del perfil destino, con sus
 # controles (aprobación humana donde aplique).
-tools: [agent.delegate, memory.*, scratchpad.*, context.*, infra.inventory]
+# weather.* es solo lectura y sin credenciales: responde al momento sin delegar.
+tools: [agent.delegate, memory.*, scratchpad.*, context.*, infra.inventory, weather.*]
 reads_untrusted: false
 secrets: []
 egress_extra: []

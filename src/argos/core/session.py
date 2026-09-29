@@ -40,6 +40,7 @@ from argos.tools.mcp_client import (
     nas_server,
     portainer_server,
     reminders_server,
+    weather_server,
 )
 from argos.tools.memory import MemorySave, MemorySearch, MemoryUpdate
 from argos.tools.registry import ToolRegistry
@@ -141,6 +142,9 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
     try:
         if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
             for tool in await mcp.connect(reminders_server(str(cfg.data_path / "reminders.db"))):
+                reg.register(tool)
+        if profile.allows_tool("weather.hourly"):
+            for tool in await mcp.connect(weather_server()):
                 reg.register(tool)
         if profile.allows_tool("kali.nmap"):
             for tool in await mcp.connect(kali_server(
@@ -254,6 +258,9 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
         tools.register(MemoryUpdate(state))
         if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
             for tool in await mcp.connect(reminders_server(str(state_dir / "reminders.db"))):
+                tools.register(tool)
+        if profile.allows_tool("weather.hourly"):
+            for tool in await mcp.connect(weather_server()):
                 tools.register(tool)
         if profile.allows_tool("kali.nmap"):
             # Auditoría de servicios propios (UC-2). Alcance y autorización del perfil (RF-SEC-06,

@@ -7,8 +7,8 @@ anotaciones se trata con el valor más conservador (escritura, no idempotente).
 
 from __future__ import annotations
 
+import asyncio
 import sys
-from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -73,22 +73,68 @@ class McpTool(Tool):
 
 
 class McpConnections:
-    """Mantiene abiertas las conexiones MCP durante una sesión."""
+    """Mantiene abiertas las conexiones MCP durante una sesión.
+
+    Cada conexión vive en su propia tarea "propietaria", que entra y sale de los contextos de
+    stdio_client/ClientSession (anyio exige hacerlo en la misma tarea). La sesión solo le pide que
+    pare: así una cancelación de la sesión (o una segunda, en el apagado del núcleo) nunca cae
+    dentro de la salida de stdio_client, donde anyio se queda en bucle.
+    """
+
+    CLOSE_TIMEOUT_S = 15
 
     def __init__(self) -> None:
-        self._stack = AsyncExitStack()
+        self._conns: list[tuple[asyncio.Event, asyncio.Task[None]]] = []
 
     async def connect(self, server: McpServerSpec) -> list[McpTool]:
         params = StdioServerParameters(command=server.command, args=server.args, env=server.env)
-        read, write = await self._stack.enter_async_context(stdio_client(params))
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        init = await session.initialize()
+        ready: asyncio.Future[tuple[ClientSession, Any, Any]] = (
+            asyncio.get_running_loop().create_future())
+        stop = asyncio.Event()
+
+        async def owner() -> None:
+            try:
+                async with stdio_client(params) as (read, write), \
+                        ClientSession(read, write) as session:
+                    init = await session.initialize()
+                    listed = await session.list_tools()
+                    ready.set_result((session, init, listed))
+                    await stop.wait()
+            except asyncio.CancelledError:
+                if not ready.done():
+                    ready.cancel()
+                raise
+            except BaseException as exc:
+                if ready.done():
+                    raise
+                ready.set_exception(exc)
+
+        task = asyncio.create_task(owner(), name=f"mcp-{server.name}")
+        self._conns.append((stop, task))
+        session, init, listed = await ready
         version = getattr(getattr(init, "server_info", None), "version", None) or "unknown"
-        listed = await session.list_tools()
         return [McpTool(server, version, session, t) for t in listed.tools]
 
     async def aclose(self) -> None:
-        await self._stack.aclose()
+        conns, self._conns = self._conns, []
+        if not conns:
+            return
+        for stop, _ in conns:
+            stop.set()
+        tasks = [t for _, t in conns]
+        waiter = asyncio.ensure_future(asyncio.wait(tasks, timeout=self.CLOSE_TIMEOUT_S))
+        try:
+            await asyncio.shield(waiter)
+        except asyncio.CancelledError:
+            await waiter          # los subprocesos se cierran igualmente; luego se propaga
+            raise
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            for t in tasks:
+                if t.done() and not t.cancelled():
+                    t.exception()   # marca la excepción como recuperada (sin avisos al GC)
 
 
 def reminders_server(db_path: str) -> McpServerSpec:
@@ -174,3 +220,12 @@ def cloudflare_server(token: str, dry_run: bool) -> McpServerSpec:
         args=["-m", "argos.mcp_servers.cloudflare.server"],
         env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
              "ARGOS_CF_TOKEN": token or "", "ARGOS_CF_DRY_RUN": "1" if dry_run else "0"})
+
+
+def weather_server(city: str = "") -> McpServerSpec:
+    """MCP de meteorología (eltiempo.es, UC-4). Solo lectura, sin credenciales."""
+    return McpServerSpec(
+        name="weather", command=sys.executable,
+        args=["-m", "argos.mcp_servers.weather.server"],
+        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+             "ARGOS_WEATHER_CITY": city or ""})

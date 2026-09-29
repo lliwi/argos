@@ -105,6 +105,11 @@ token (`argos inventory set cloudflare api_key`). `cloudflare.*`: zonas, registr
 analítica sin aprobación; crear/modificar/borrar registros DNS con aprobación. Permisos del token:
 `Zone:Read` + `DNS:Edit` (y `Cloudflare Tunnel:Read` + `Analytics:Read` para túneles y tráfico).
 
+**Meteorología** ([ADR-0020](docs/adr/0020-mcp-meteorologia.md)): `weather.hourly` (perfiles
+`personal` y `orchestrator`, sin credenciales) da la previsión por horas de eltiempo.es
+—temperatura, lluvia y viento— con resumen diario. Ciudad = slug de la URL (`barcelona` por
+defecto).
+
 ## Acceso de red del sandbox
 Por defecto el sandbox solo sale a repositorios de paquetes (RF-EX-04). Los perfiles `personal` e
 `infra` incluyen además las redes locales (RFC1918: `192.168.0.0/16`, `10.0.0.0/8`,

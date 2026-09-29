@@ -386,3 +386,6 @@ async def serve(core: Core, socket_path: Path, hooks_host: str | None, hooks_por
         if sched_task:
             sched_task.cancel()
         socket_path.unlink(missing_ok=True)
+        # También si serve() se cancela (el lifespan de uvicorn no llega a correr): las sesiones
+        # deben terminar de cerrar sus MCP antes de que el bucle se cierre y las mate a medias.
+        await core.manager.shutdown()

@@ -1,6 +1,6 @@
 name: personal
 description: Recordatorios y tareas cotidianas (UC-4).
-tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*, reminders.*]
+tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*, reminders.*, weather.*]
 reads_untrusted: false
 secrets: []
 # Acceso a la red local (RFC1918): servicios de casa por IP. No abre Internet:
