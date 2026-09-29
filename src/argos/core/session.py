@@ -33,9 +33,11 @@ from argos.state import StateStore, render_memories
 from argos.tools.inventory import InventoryTool
 from argos.tools.mcp_client import (
     McpConnections,
+    cloudflare_server,
     homeassistant_server,
     kali_server,
     media_server,
+    nas_server,
     portainer_server,
     reminders_server,
 )
@@ -167,6 +169,17 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
                     tr.get("url", ""), tr.get("username", ""),
                     inv.secret("transmission", "password") or "", True)):
                 reg.register(tool)
+        if profile.allows_tool("nas.list"):
+            nas = inv.get("nas")
+            for tool in await mcp.connect(nas_server(
+                    nas.get("url", ""), nas.get("user", "") or nas.get("username", ""),
+                    inv.secret("nas", "password") or "", inv.secret("nas", "community") or "",
+                    True)):
+                reg.register(tool)
+        if profile.allows_tool("cloudflare.zones"):
+            cf_token = inv.secret("cloudflare", "api_key") or inv.secret("cloudflare", "token")
+            for tool in await mcp.connect(cloudflare_server(cf_token or "", True)):
+                reg.register(tool)
         reg = reg.for_profile(profile)
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
         out = [{"name": t.name, "version": t.version, "risk": t.risk_class.value,
@@ -272,6 +285,18 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
                     jk.get("url", ""), inventory.secret("jackett", "api_key") or "",
                     tr.get("url", ""), tr.get("username", ""),
                     inventory.secret("transmission", "password") or "", dry_run)):
+                tools.register(tool)
+        if profile.allows_tool("nas.list"):
+            nas = inventory.get("nas")
+            for tool in await mcp.connect(nas_server(
+                    nas.get("url", ""), nas.get("user", "") or nas.get("username", ""),
+                    inventory.secret("nas", "password") or "",
+                    inventory.secret("nas", "community") or "", dry_run)):
+                tools.register(tool)
+        if profile.allows_tool("cloudflare.zones"):
+            cf_token = (inventory.secret("cloudflare", "api_key")
+                        or inventory.secret("cloudflare", "token"))
+            for tool in await mcp.connect(cloudflare_server(cf_token or "", dry_run)):
                 tools.register(tool)
 
         session_limit = opts.session_budget_tokens or cfg.budget.session_tokens

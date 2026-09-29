@@ -14,6 +14,8 @@ dependencies = [
     "uvicorn>=0.30",
     "httpx>=0.27",
     "tzdata>=2024.1",
+    "smbprotocol>=1.12",
+    "puresnmp>=2.0",
 ]
 
 [project.scripts]

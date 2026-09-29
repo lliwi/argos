@@ -100,6 +100,11 @@ Listar/inspeccionar/logs no piden aprobación; parar/arrancar/reiniciar sí (y s
 servicio `homeassistant` al inventario (url + token de larga duración) y usa `homeassistant.*`
 (listar entidades y estados sin aprobación; `call_service` para encender/apagar con aprobación).
 
+**Cloudflare** ([ADR-0019](docs/adr/0019-mcp-cloudflare.md)): servicio `cloudflare` con un API
+token (`argos inventory set cloudflare api_key`). `cloudflare.*`: zonas, registros DNS, túneles y
+analítica sin aprobación; crear/modificar/borrar registros DNS con aprobación. Permisos del token:
+`Zone:Read` + `DNS:Edit` (y `Cloudflare Tunnel:Read` + `Analytics:Read` para túneles y tráfico).
+
 ## Acceso de red del sandbox
 Por defecto el sandbox solo sale a repositorios de paquetes (RF-EX-04). Los perfiles `personal` e
 `infra` incluyen además las redes locales (RFC1918: `192.168.0.0/16`, `10.0.0.0/8`,

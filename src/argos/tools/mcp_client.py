@@ -153,3 +153,24 @@ def media_server(jackett_url: str, jackett_key: str, transmission_url: str,
              "ARGOS_TRANSMISSION_URL": transmission_url or "",
              "ARGOS_TRANSMISSION_USER": tr_user or "", "ARGOS_TRANSMISSION_PASS": tr_pass or "",
              "ARGOS_MEDIA_DRY_RUN": "1" if dry_run else "0"})
+
+
+def nas_server(host: str, user: str, password: str, community: str,
+               dry_run: bool) -> McpServerSpec:
+    """MCP del NAS (SMB + SNMP, UC-3). Credenciales del inventario, nunca del modelo."""
+    return McpServerSpec(
+        name="nas", command=sys.executable,
+        args=["-m", "argos.mcp_servers.nas.server"],
+        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+             "ARGOS_NAS_HOST": host or "", "ARGOS_NAS_USER": user or "",
+             "ARGOS_NAS_PASSWORD": password or "", "ARGOS_NAS_COMMUNITY": community or "",
+             "ARGOS_NAS_DRY_RUN": "1" if dry_run else "0"})
+
+
+def cloudflare_server(token: str, dry_run: bool) -> McpServerSpec:
+    """MCP de Cloudflare (DNS, túneles, analítica; UC-3). Token del inventario, nunca del modelo."""
+    return McpServerSpec(
+        name="cloudflare", command=sys.executable,
+        args=["-m", "argos.mcp_servers.cloudflare.server"],
+        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+             "ARGOS_CF_TOKEN": token or "", "ARGOS_CF_DRY_RUN": "1" if dry_run else "0"})

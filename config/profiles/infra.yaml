@@ -1,7 +1,7 @@
 name: infra
 description: Monitorización y gestión de NAS, Cloudflare, Portainer, Home Assistant (UC-3).
 tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*,
-        memory.*, infra.*, portainer.*, homeassistant.*, media.*]
+        memory.*, infra.*, portainer.*, homeassistant.*, media.*, nas.*, cloudflare.*]
 reads_untrusted: false     # P2: tiene credenciales potentes => no lee contenido no confiable
 secrets: []                # Portainer y demás credenciales viven en secrets/inventory.yaml
 # Acceso a la red local (RFC1918): servicios de casa por IP. No abre Internet:

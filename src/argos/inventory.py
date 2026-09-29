@@ -21,7 +21,7 @@ import yaml
 log = logging.getLogger(__name__)
 
 SECRET_FIELDS = frozenset({"api_key", "apikey", "token", "password", "passwd", "secret",
-                           "passphrase", "key", "access_token"})
+                           "passphrase", "key", "access_token", "community"})
 
 
 def _is_secret(field: str) -> bool:
