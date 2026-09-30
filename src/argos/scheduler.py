@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -100,7 +100,11 @@ class Cron:
 class ScheduleCfg(BaseModel):
     name: str
     cron: str
-    task: str
+    # agent = un encargo al agente (task); eval = corre una suite de evaluación (suite) y publica
+    # un informe comparado con la corrida anterior (RF-EV-02/05 de forma continua).
+    kind: Literal["agent", "eval"] = "agent"
+    task: str = ""
+    suite: str | None = None
     # Por defecto el orquestador: único punto de entrada, pide el trabajo al perfil adecuado.
     profile: str = "orchestrator"
     title: str | None = None     # nombre legible para los avisos (por defecto, `name`)
@@ -112,6 +116,10 @@ class ScheduleCfg(BaseModel):
     @model_validator(mode="after")
     def _valid_cron(self) -> ScheduleCfg:
         Cron.parse(self.cron)
+        if self.kind == "agent" and not self.task.strip():
+            raise ValueError(f"tarea {self.name!r}: falta 'task'")
+        if self.kind == "eval" and not self.suite:
+            raise ValueError(f"tarea {self.name!r}: kind eval necesita 'suite'")
         return self
 
 
@@ -137,6 +145,9 @@ def load_scheduler_cfg(cfg: Config) -> SchedulerCfg:
     ZoneInfo(sc.timezone)   # valida la zona
     for item in [*sc.schedules, *sc.hooks]:
         cfg.profile(item.profile)
+    for sch in sc.schedules:
+        if sch.kind == "eval" and not (cfg.root / "evals" / str(sch.suite)).is_dir():
+            raise ValueError(f"tarea {sch.name!r}: no existe la suite evals/{sch.suite}")
     for hook in sc.hooks:
         prof = cfg.profile(hook.profile)
         if prof.is_powerful:
@@ -172,6 +183,7 @@ class Scheduler:
         self.state = {s.name: ScheduleState() for s in sched.schedules}
         self.log_path: Path = cfg.data_path / "scheduler.jsonl"
         self.last_tick: str | None = None
+        self._evals: dict[str, asyncio.Task[Any]] = {}
 
     def _log(self, **entry: Any) -> None:
         entry = {"ts": datetime.now(self.tz).isoformat(), **entry}
@@ -185,6 +197,8 @@ class Scheduler:
         from argos.core.session import SessionOptions, SessionRefused
 
         st = self.state[schedule.name]
+        if schedule.kind == "eval":
+            return self._fire_eval(schedule, reason)
         if self._busy(schedule.name):
             st.skipped += 1
             self._log(schedule=schedule.name, action="skip", reason="ejecución anterior en curso")
@@ -202,6 +216,42 @@ class Scheduler:
         st.last_session = sid
         self._log(schedule=schedule.name, action="fire", reason=reason, session_id=sid)
         return sid
+
+    def _fire_eval(self, schedule: ScheduleCfg, reason: str) -> str | None:
+        st = self.state[schedule.name]
+        running = self._evals.get(schedule.name)
+        if running and not running.done():
+            st.skipped += 1
+            self._log(schedule=schedule.name, action="skip", reason="evaluación anterior en curso")
+            return None
+        run_ref = f"eval-{schedule.name}-{datetime.now(self.tz):%Y%m%dT%H%M}"
+        st.last_session = run_ref
+        st.last_status = "running"
+        self._evals[schedule.name] = asyncio.create_task(self._run_eval(schedule, run_ref))
+        self._log(schedule=schedule.name, action="fire", reason=reason, session_id=run_ref)
+        return run_ref
+
+    async def _run_eval(self, schedule: ScheduleCfg, run_ref: str) -> None:
+        from argos.eval.runner import compare_to_baseline, eval_report, latest_run, run_suite
+
+        st = self.state[schedule.name]
+        provider = self.cfg.model.provider
+        try:
+            previous = latest_run(self.cfg, str(schedule.suite), provider)
+            summary = await run_suite(self.cfg, self.manager.store, str(schedule.suite),
+                                      provider, self.manager.provider_factory)
+            regressions = compare_to_baseline(summary, previous) if previous else []
+            text = eval_report(summary, previous, regressions)
+            st.last_status = "regression" if regressions else "completed"
+        except Exception as exc:  # noqa: BLE001 — el informe dice qué falló; el núcleo sigue
+            text = f"la evaluación falló: {type(exc).__name__}: {exc}"
+            st.last_status = "failed"
+        self._log(schedule=schedule.name, action="result", session_id=run_ref,
+                  status=st.last_status)
+        self.manager.hub.bus.publish({
+            "type": "eval_report", "schedule": schedule.name,
+            "title": schedule.title or schedule.name, "notify": schedule.notify,
+            "status": st.last_status, "text": text, "run_ref": run_ref})
 
     def tick(self, now: datetime | None = None) -> list[str]:
         now = (now or datetime.now(self.tz)).astimezone(self.tz).replace(second=0, microsecond=0)
@@ -237,6 +287,7 @@ class Scheduler:
 
     def status(self) -> list[dict[str, Any]]:
         return [{"name": s.name, "title": s.title or s.name, "notify": s.notify,
+                 "kind": s.kind, "suite": s.suite,
                  "cron": s.cron, "profile": s.profile, "enabled": s.enabled,
                  "last_fired": self.state[s.name].last_fired,
                  "last_session": self.state[s.name].last_session,

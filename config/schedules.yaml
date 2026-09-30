@@ -20,6 +20,15 @@ schedules:
       viento (km/h y dirección). No hagas nada más.
     budget_tokens: 40000
 
+  # Evaluación de eficacia de Argos (suite evals/argos): tus consultas reales puntuadas contra
+  # el dato verdadero de cada servicio, la seguridad de las acciones y el coste. Informe al chat
+  # de Matrix comparado con la semana anterior. ~9 sesiones reales: ~250–350k tokens por corrida.
+  - name: evaluacion-argos
+    title: Evaluación semanal de Argos
+    kind: eval
+    suite: argos
+    cron: "0 10 * * 0"           # domingos a las 10:00
+
 # Webhooks: POST http://127.0.0.1:<puerto>/hooks/<name> con cabecera X-Argos-Token.
 # El payload es dato no confiable; el perfil destino no puede tener secretos potentes.
 hooks:

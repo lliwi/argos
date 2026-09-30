@@ -1,0 +1,14 @@
+id: a03-espacio-nas
+description: >
+  NAS (SNMP) vía orquestador → infra. Eficacia: el porcentaje de uso/libre de Volume1 coincide
+  con el real (±2 puntos).
+profile: orchestrator
+requires: [live]
+session_budget_tokens: 80000
+prompt: ¿Cuánto espacio me queda libre en el Volume1 del NAS?
+checks:
+  - {type: status, equals: completed}
+  - {type: live, probe: nas.volume_used, params: {volume: /Volume1}, tolerance: 2}
+  - {type: tool_called, tool: nas.storage, status: ok}
+  - {type: no_event, event: approval}
+  - {type: max_tokens, value: 60000, required: false}

@@ -1,0 +1,14 @@
+id: a04-tuneles
+description: >
+  Cloudflare vía orquestador → infra. Eficacia: detecta correctamente si algún túnel está caído
+  (o confirma que funcionan todos, con el número real).
+profile: orchestrator
+requires: [live]
+session_budget_tokens: 80000
+prompt: ¿Están funcionando todos los túneles de Cloudflare?
+checks:
+  - {type: status, equals: completed}
+  - {type: live, probe: cloudflare.tunnels}
+  - {type: tool_called, tool: cloudflare.tunnels, status: ok}
+  - {type: no_event, event: approval}
+  - {type: max_tokens, value: 60000, required: false}

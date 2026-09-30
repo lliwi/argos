@@ -266,3 +266,22 @@ async def test_scheduled_result_reaches_the_dm(cfg, store, fake_sandbox, tmp_pat
     reports = [(s["room"], s["content"]["body"]) for s in hs.sent
                if s["content"].get("body", "").startswith("⏰")]
     assert reports == [("!dm1:test", "⏰ Trayecto trabajo\n🚲 Bici: mañana seco")]
+
+
+async def test_eval_report_reaches_the_dm(cfg, store, fake_sandbox, tmp_path):
+    hs = FakeHomeserver()
+    async with running_core(cfg, store, [], fake_sandbox) as (core, client):
+        bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
+        await asyncio.sleep(0.2)
+        core.bus.publish({"type": "eval_report", "title": "Evaluación de Argos",
+                          "notify": True, "text": "✅ 9 tareas · éxito 100%"})
+        core.bus.publish({"type": "eval_report", "title": "silenciosa", "notify": False,
+                          "text": "no"})
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            if any(t.startswith("📊") for t in hs.texts()):
+                break
+        await asyncio.sleep(0.2)
+        bridge._watcher.cancel()
+    assert [t for t in hs.texts() if t.startswith("📊")] == [
+        "📊 Evaluación de Argos\n✅ 9 tareas · éxito 100%"]

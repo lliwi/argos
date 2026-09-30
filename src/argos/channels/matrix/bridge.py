@@ -313,6 +313,10 @@ class MatrixBridge:
                     elif kind == "session" and ev.get("channel") == "scheduler" \
                             and not ev.get("parent_session_id"):
                         scheduled.add(ev["session_id"])
+                    elif kind == "eval_report" and ev.get("notify", True):
+                        if room := self._report_room():
+                            await self.matrix.send_text(
+                                room, f"📊 {ev.get('title', 'Evaluación')}\n{ev.get('text', '')}")
                     elif kind == "session_end" and ev.get("session_id") in scheduled:
                         scheduled.discard(ev["session_id"])
                         await self._report_scheduled(ev)

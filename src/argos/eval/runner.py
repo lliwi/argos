@@ -23,7 +23,8 @@ from argos.audit.review import summarize
 from argos.audit.store import AuditStore
 from argos.config import Config
 from argos.core.session import SessionOptions, run_session
-from argos.eval.checks import run_check
+from argos.eval.checks import CheckResult, run_check
+from argos.eval.probes import live_check
 from argos.governance.approval import ScriptedApprover
 from argos.model.base import ModelProvider
 from argos.model.fake import FakeProvider
@@ -70,6 +71,8 @@ async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provide
     tid = task["id"]
     if "docker" in task.get("requires", []) and (why := sandbox_ready(cfg)):
         return TaskOutcome(tid, "skipped", reason=why)
+    if provider_name == "fake" and "live" in task.get("requires", []):
+        return TaskOutcome(tid, "skipped", reason="usa servicios reales: solo con modelo real")
     if provider_name == "fake":
         if "fake_script" not in task:
             return TaskOutcome(tid, "skipped", reason="sin fake_script para provider fake")
@@ -91,8 +94,16 @@ async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provide
     finally:
         shutil.rmtree(state_dir, ignore_errors=True)
 
-    events = store.events(result.session_id)
-    checks = [run_check(spec, result, events) for spec in task.get("checks", [])]
+    events = tree_events(store, result.session_id)
+    checks = []
+    for spec in task.get("checks", []):
+        if spec["type"] == "live":
+            # Verdad en vivo: se consulta el servicio real y se compara con la respuesta.
+            ok, detail = await live_check(spec, result.message or "", cfg)
+            checks.append(CheckResult("live", ok, f"{spec['probe']}: {detail}",
+                                      spec.get("required", True)))
+        else:
+            checks.append(run_check(spec, result, events))
     scored = [c for c in checks if c.required] or checks
     score = sum(c.passed for c in scored) / len(scored) if scored else 0.0
     passed = all(c.passed for c in checks if c.required)
@@ -105,6 +116,17 @@ async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provide
                        checks=[c.as_dict() for c in checks], metrics=metrics))
     return TaskOutcome(tid, "passed" if passed else "failed", score, result.session_id,
                        [c.as_dict() for c in checks], metrics)
+
+
+def tree_events(store: AuditStore, session_id: str) -> list:
+    """Eventos de la sesión y de todos sus subagentes: si el orquestador delega, la llamada a la
+    tool y la aprobación ocurren en la sesión hija y los checks deben verlas."""
+    out, pending = [], [session_id]
+    while pending:
+        sid = pending.pop()
+        out.extend(store.events(sid))
+        pending.extend(store.children(sid))
+    return out
 
 
 def per_task(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -188,3 +210,41 @@ def compare_runs(a: dict[str, Any], b: dict[str, Any]) -> list[tuple[str, dict, 
     """Filas (tarea, métricas A, métricas B) para comparar dos corridas (RF-EV-04)."""
     pa, pb = per_task(a), per_task(b)
     return [(tid, pa.get(tid, {}), pb.get(tid, {})) for tid in sorted(set(pa) | set(pb))]
+
+
+def latest_run(cfg: Config, suite: str, provider: str) -> dict[str, Any] | None:
+    """Última corrida guardada de la suite con ese proveedor (referencia para comparar)."""
+    out_dir = cfg.data_path / "evals"
+    for path in sorted(out_dir.glob("*.json"), reverse=True) if out_dir.is_dir() else []:
+        try:
+            data = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if data.get("suite") == suite and data.get("provider") == provider:
+            return data
+    return None
+
+
+def eval_report(summary: dict[str, Any], previous: dict[str, Any] | None,
+                regressions: list[str]) -> str:
+    """Informe breve (para el móvil): aciertos, coste, fallos con su motivo y cambios."""
+    agg = summary["aggregate"]
+    lines = [f"{'⚠️' if regressions else '✅'} {agg['ran']} tareas · éxito "
+             f"{agg['success_rate']:.0%} · score {agg['mean_score']:.2f} · "
+             f"{agg['mean_tokens']:,} tokens de media".replace(",", ".")]
+    if previous:
+        pa = previous["aggregate"]
+        lines.append(f"antes: éxito {pa['success_rate']:.0%} · {pa['mean_tokens']:,} tokens"
+                     .replace(",", "."))
+    for t in summary["tasks"]:
+        if t["status"] == "passed":
+            continue
+        why = t.get("reason") or "; ".join(
+            c["detail"][:140] for c in t.get("checks", []) if c["required"] and not c["passed"])
+        icon = {"failed": "❌", "error": "💥", "skipped": "⏭"}.get(t["status"], "?")
+        lines.append(f"{icon} {t['task_id']}: {why}")
+    if regressions:
+        lines.append("Regresiones:")
+        lines += [f"• {r}" for r in regressions]
+    lines.append(f"corrida {summary['run_id']} · detalle: argos audit show <sesión>")
+    return "\n".join(lines)
