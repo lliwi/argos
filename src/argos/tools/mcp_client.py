@@ -229,3 +229,12 @@ def weather_server(city: str = "") -> McpServerSpec:
         args=["-m", "argos.mcp_servers.weather.server"],
         env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
              "ARGOS_WEATHER_CITY": city or ""})
+
+
+def notion_server(token: str, dry_run: bool) -> McpServerSpec:
+    """MCP de Notion (UC-4). Token del inventario, nunca del modelo."""
+    return McpServerSpec(
+        name="notion", command=sys.executable,
+        args=["-m", "argos.mcp_servers.notion.server"],
+        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+             "ARGOS_NOTION_TOKEN": token or "", "ARGOS_NOTION_DRY_RUN": "1" if dry_run else "0"})

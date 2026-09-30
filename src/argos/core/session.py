@@ -38,6 +38,7 @@ from argos.tools.mcp_client import (
     kali_server,
     media_server,
     nas_server,
+    notion_server,
     portainer_server,
     reminders_server,
     weather_server,
@@ -184,6 +185,10 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
             cf_token = inv.secret("cloudflare", "api_key") or inv.secret("cloudflare", "token")
             for tool in await mcp.connect(cloudflare_server(cf_token or "", True)):
                 reg.register(tool)
+        if profile.allows_tool("notion.search"):
+            for tool in await mcp.connect(notion_server(
+                    inv.secret("notion", "api_key") or inv.secret("notion", "token") or "", True)):
+                reg.register(tool)
         reg = reg.for_profile(profile)
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
         out = [{"name": t.name, "version": t.version, "risk": t.risk_class.value,
@@ -304,6 +309,11 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             cf_token = (inventory.secret("cloudflare", "api_key")
                         or inventory.secret("cloudflare", "token"))
             for tool in await mcp.connect(cloudflare_server(cf_token or "", dry_run)):
+                tools.register(tool)
+        if profile.allows_tool("notion.search"):
+            notion_token = (inventory.secret("notion", "api_key")
+                            or inventory.secret("notion", "token") or "")
+            for tool in await mcp.connect(notion_server(notion_token, dry_run)):
                 tools.register(tool)
 
         session_limit = opts.session_budget_tokens or cfg.budget.session_tokens

@@ -110,6 +110,12 @@ analítica sin aprobación; crear/modificar/borrar registros DNS con aprobación
 —temperatura, lluvia y viento— con resumen diario. Ciudad = slug de la URL (`barcelona` por
 defecto).
 
+**Notion** ([ADR-0021](docs/adr/0021-mcp-notion.md)): servicio `notion` (token de integración
+interna) y `notion.*` en el perfil `personal`: buscar, leer páginas, consultar bases de datos,
+crear/añadir/actualizar (validado contra el esquema real) y archivar con aprobación. La skill
+`notion` recoge las buenas prácticas (base TODO, informes, seguridad). Comparte en Notion las
+páginas que quieras que vea la integración.
+
 ## Acceso de red del sandbox
 Por defecto el sandbox solo sale a repositorios de paquetes (RF-EX-04). Los perfiles `personal` e
 `infra` incluyen además las redes locales (RFC1918: `192.168.0.0/16`, `10.0.0.0/8`,
