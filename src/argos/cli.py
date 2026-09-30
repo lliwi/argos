@@ -378,7 +378,7 @@ def matrix_cmd() -> None:
                               (mc.token_env, token)) if not v]
     if missing:
         console.print(f"[red]Falta configuración:[/] {', '.join(missing)} "
-                      "(config/argos.yaml y .env.matrix)")
+                      "(config/argos.yaml y secrets/matrix.env)")
         raise typer.Exit(2)
     if not cfg.allows_profile(mc.profile):
         raise typer.BadParameter(f"perfil {mc.profile!r} fuera del segmento {cfg.segment!r}")
@@ -408,8 +408,8 @@ def matrix_login_cmd(
     = False,
 ) -> None:
     """Obtiene el token del bot con las credenciales del inventario (servicio `matrix`: user,
-    password y opcionalmente homeserver) y lo guarda en .env.matrix (600). Ni la contraseña ni
-    el token se muestran ni pasan por el modelo."""
+    password y opcionalmente homeserver) y lo guarda en secrets/matrix.env (600). Ni la
+    contraseña ni el token se muestran ni pasan por el modelo."""
     import os
     from pathlib import Path
 
@@ -426,7 +426,7 @@ def matrix_login_cmd(
         raise typer.Exit(2)
     homeserver = (svc.get("homeserver") or svc.get("url") or cfg.matrix.homeserver
                   or f"https://{str(user).split(':', 1)[1]}")
-    env_path = cfg.root / ".env.matrix"
+    env_path = cfg.root / "secrets" / "matrix.env"
 
     async def valid(token: str) -> str | None:
         client = MatrixClient(homeserver, token)
@@ -443,7 +443,7 @@ def matrix_login_cmd(
             if line.startswith(f"{cfg.matrix.token_env}="):
                 old = line.split("=", 1)[1].strip()
     if old and not force and (who := asyncio.run(valid(old))):
-        console.print(f"El token de .env.matrix ya es válido para {who}; nada que hacer "
+        console.print(f"El token de secrets/matrix.env ya es válido para {who}; nada que hacer "
                       "(--force para renovarlo).")
         return
     try:
@@ -455,7 +455,7 @@ def matrix_login_cmd(
     with os.fdopen(fd, "w") as fh:
         fh.write(f"{cfg.matrix.token_env}={data['access_token']}\n")
     Path(env_path).chmod(0o600)
-    console.print(f"Token guardado en .env.matrix para {data.get('user_id')} "
+    console.print(f"Token guardado en secrets/matrix.env para {data.get('user_id')} "
                   f"(dispositivo {data.get('device_id')}) en {homeserver}.")
 
 

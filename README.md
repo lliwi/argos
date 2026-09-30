@@ -52,7 +52,7 @@ Tareas programadas y webhooks en [config/schedules.yaml](config/schedules.yaml)
 
 ## Matrix (Fase 3)
 ```bash
-scripts/matrix-login.sh https://matrix.tudominio.org argos   # token del bot → .env.matrix
+scripts/matrix-login.sh https://matrix.tudominio.org argos   # token del bot → secrets/matrix.env
 # config/argos.yaml → matrix.homeserver, matrix.user_id, matrix.allowed_users
 docker compose --profile daemon up -d daemon matrix
 ```

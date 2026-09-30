@@ -11,6 +11,11 @@
 #
 # Solo el servicio `broker` tiene el socket Docker (control total del host). Los núcleos piden su
 # sandbox al broker por un socket Unix de su segmento y no pueden tocar Docker (ADR-0008).
+#
+# Aislamiento entre segmentos (RF-SEC-02, P2): cada segmento sale a Internet por su propia red
+# (argos_egress_<seg>) y no alcanza a los otros. El repo se monta en solo lectura, pero un tmpfs
+# vacío tapa `var/` (solo se vuelve a montar el directorio del propio segmento) y, donde no hacen
+# falta, `secrets/` (inventario, tokens de Matrix/webhooks, SOPS). Solo main ve `secrets/`.
 name: argos
 
 x-egress: &egress
@@ -30,7 +35,6 @@ x-core: &core
   profiles: [core]
   user: "${UID:-1000}:${GID:-1000}"
   working_dir: ${ARGOS_DIR:?ejecuta scripts/setup-env.sh}
-  networks: [egress]
   stdin_open: true
   tty: true
 
@@ -38,15 +42,15 @@ services:
   egress-main:
     <<: *egress
     volumes: ["./var/egress/main:/var/egress"]
-    networks: [sandbox_main, egress]
+    networks: [sandbox_main, egress_main]
   egress-osint:
     <<: *egress
     volumes: ["./var/egress/osint:/var/egress"]
-    networks: [sandbox_osint, egress]
+    networks: [sandbox_osint, egress_osint]
   egress-pentest:
     <<: *egress
     volumes: ["./var/egress/pentest:/var/egress"]
-    networks: [sandbox_pentest, egress]
+    networks: [sandbox_pentest, egress_pentest]
 
   # Broker de sandbox (ADR-0008): ÚNICO servicio con el socket Docker. Sin red: solo habla por
   # los sockets Unix de cada segmento (var/broker/<seg>/broker.sock).
@@ -94,6 +98,7 @@ services:
   # puede escribir en los datos y la política de egress de su segmento.
   core:
     <<: *core
+    networks: [egress_main]
     environment:
       ARGOS_SEGMENT: main
       PYTHONPATH: ${ARGOS_DIR}/src
@@ -101,6 +106,7 @@ services:
       ARGOS_KEY_DIR: /age
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
       - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
       - ${ARGOS_DIR}/var/broker/main:${ARGOS_DIR}/var/broker/main
       - ${ARGOS_CODEX_HOME:?ejecuta scripts/setup-env.sh}:/codex
@@ -109,11 +115,14 @@ services:
 
   core-osint:
     <<: *core
+    networks: [egress_osint]
     environment:
       ARGOS_SEGMENT: osint
       PYTHONPATH: ${ARGOS_DIR}/src
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
+      - {type: tmpfs, target: "${ARGOS_DIR}/secrets", tmpfs: {size: 1m}}  # sin credenciales
       - ${ARGOS_DIR}/var/segments/osint:${ARGOS_DIR}/var/segments/osint
       - ${ARGOS_DIR}/var/broker/osint:${ARGOS_DIR}/var/broker/osint
       - ${ARGOS_CODEX_HOME}:/codex
@@ -121,12 +130,14 @@ services:
 
   core-pentest:
     <<: *core
-    networks: [egress, kali]
+    networks: [egress_pentest, kali]
     environment:
       ARGOS_SEGMENT: pentest
       PYTHONPATH: ${ARGOS_DIR}/src
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
+      - {type: tmpfs, target: "${ARGOS_DIR}/secrets", tmpfs: {size: 1m}}  # sin credenciales
       - ${ARGOS_DIR}/var/segments/pentest:${ARGOS_DIR}/var/segments/pentest
       - ${ARGOS_DIR}/var/broker/pentest:${ARGOS_DIR}/var/broker/pentest
       - ${ARGOS_CODEX_HOME}:/codex
@@ -142,7 +153,8 @@ services:
     stdin_open: false
     tty: false
     ports: ["127.0.0.1:8787:8787"]
-    env_file: [{path: .env.hooks, required: false}]   # tokens ARGOS_HOOK_*_TOKEN
+    networks: [egress_main]
+    env_file: [{path: secrets/hooks.env, required: false}]   # tokens ARGOS_HOOK_*_TOKEN
     environment:
       ARGOS_SEGMENT: main
       PYTHONPATH: ${ARGOS_DIR}/src
@@ -150,14 +162,15 @@ services:
       ARGOS_KEY_DIR: /age
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
       - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
       - ${ARGOS_DIR}/var/broker/main:${ARGOS_DIR}/var/broker/main
       - ${ARGOS_CODEX_HOME}:/codex
       - ${ARGOS_AGE_DIR}:/age
     depends_on: [egress-main, broker]
 
-  # Puente Matrix (RF-07): cliente de la API del núcleo `daemon`. Sin socket Docker ni clave age:
-  # solo ve el socket de la API y su token (.env.matrix, ver scripts/matrix-login.sh).
+  # Puente Matrix (RF-07): cliente de la API del núcleo `daemon`. Sin socket Docker, sin clave age
+  # y sin `secrets/`: su token llega por entorno (secrets/matrix.env, `argos matrix-login`).
   matrix:
     <<: *core
     profiles: [daemon]
@@ -165,14 +178,16 @@ services:
     restart: unless-stopped
     stdin_open: false
     tty: false
-    env_file: [{path: .env.matrix, required: false}]
+    env_file: [{path: secrets/matrix.env, required: false}]
     environment:
       ARGOS_SEGMENT: main
       PYTHONPATH: ${ARGOS_DIR}/src
     volumes:
       - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
+      - {type: tmpfs, target: "${ARGOS_DIR}/secrets", tmpfs: {size: 1m}}  # sin credenciales
       - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
-    networks: [egress]
+    networks: [egress_main]
     depends_on: [daemon]
 
 networks:
@@ -186,8 +201,14 @@ networks:
   sandbox_pentest:
     name: argos_sandbox_pentest
     internal: true
-  egress:
-    name: argos_egress
+  # Salida a Internet/LAN, una por segmento: los núcleos y proxies de un segmento no alcanzan a
+  # los de otro (ni al daemon ni al proxy de main, que abre la LAN).
+  egress_main:
+    name: argos_egress_main
+  egress_osint:
+    name: argos_egress_osint
+  egress_pentest:
+    name: argos_egress_pentest
   # Red del servidor Kali: bridge (con salida) para poder auditar objetivos reales en LAN o
   # Internet. La contención NO es de red aquí, sino el alcance autorizado + la aprobación humana
   # + la auditoría que aplica Argos (ADR-0013). La comparten kali y core-pentest.

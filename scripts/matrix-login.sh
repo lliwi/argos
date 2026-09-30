@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Obtiene un access token para la cuenta del bot y lo guarda en .env.matrix (600, fuera de git).
+# Obtiene un access token para la cuenta del bot y lo guarda en secrets/matrix.env (600, fuera de git).
 # La contraseña se pide sin eco y no se guarda en ningún sitio.
 # Uso: scripts/matrix-login.sh https://matrix.tudominio.org argos
 set -euo pipefail
@@ -16,6 +16,6 @@ resp=$(curl -fsS -X POST "${HS%/}/_matrix/client/v3/login" -H 'Content-Type: app
 token=$(jq -r .access_token <<<"$resp")
 user_id=$(jq -r .user_id <<<"$resp")
 umask 077
-printf 'ARGOS_MATRIX_TOKEN=%s\n' "$token" > .env.matrix
-echo "Token guardado en .env.matrix para ${user_id}."
+printf 'ARGOS_MATRIX_TOKEN=%s\n' "$token" > secrets/matrix.env
+echo "Token guardado en secrets/matrix.env para ${user_id}."
 echo "En config/argos.yaml: matrix.homeserver=${HS}  matrix.user_id=\"${user_id}\"  y allowed_users."

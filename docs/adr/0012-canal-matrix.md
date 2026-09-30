@@ -19,7 +19,7 @@
 - **Aprobaciones** (RF-20): «sí»/«no» en el hilo o reacción ✅/❌; auditadas con el usuario de
   Matrix como aprobador. Las de otros canales van a `notify_room` si está configurada.
 - **Comandos**: `!estado`, `!memoria`, `!kill <motivo>` (RF-GOV-02 desde el móvil), `!rearm`.
-- **Despliegue**: servicio `matrix` sin socket Docker ni clave age; token en `.env.matrix` (600,
+- **Despliegue**: servicio `matrix` sin socket Docker ni clave age; token en `secrets/matrix.env` (600,
   fuera de git). Se obtiene con `argos matrix-login` a partir del inventario (servicio `matrix`:
   user, password) sin mostrar ni la contraseña ni el token (o con `scripts/matrix-login.sh`).
   El contenedor del puente solo recibe el token, nunca la contraseña.

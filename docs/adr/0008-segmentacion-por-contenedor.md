@@ -30,6 +30,31 @@
 - Registro propio en `var/broker/broker.jsonl` (nombres de variables, nunca sus valores).
 - `sandbox.backend: docker` queda para desarrollo en el host.
 
+## Actualización 2026-09-30 — cierre de RF-SEC-02 con contenedores
+Revisión tras añadir el inventario (ADR-0014) y Matrix: tres fugas entre segmentos.
+1. Todos los núcleos montaban el repo entero: `core-osint`/`core-pentest` (y `matrix`) podían leer
+   `secrets/inventory.yaml`, los tokens y `var/segments/main` (auditoría, memoria, workspaces).
+2. Todos compartían la red `argos_egress`: OSINT alcanzaba el daemon (webhooks) y el proxy de
+   main, que abre la LAN.
+3. Los tokens de Matrix/webhooks vivían en la raíz (`.env.*`), fuera de `secrets/`.
+
+Decisión:
+- Un `tmpfs` vacío tapa `${ARGOS_DIR}/var` en todos los núcleos y se remonta encima solo el
+  directorio de su segmento; otro tapa `${ARGOS_DIR}/secrets` salvo en `core`/`daemon` de main
+  (necesitan inventario y SOPS). `matrix` recibe su token por entorno y no ve `secrets/`.
+- Tokens en `secrets/matrix.env` y `secrets/hooks.env`.
+- Una red de salida por segmento (`argos_egress_{main,osint,pentest}`): cada núcleo y su proxy
+  solo se ven entre sí. `core-pentest` añade `argos_kali`.
+- Verificado en vivo desde cada contenedor: OSINT/pentest no leen `secrets/` ni ven datos de
+  otros segmentos, y no alcanzan daemon ni proxy de main ni por nombre ni por IP; main sigue
+  llegando a la LAN y a Internet. Regresión estática en `tests/test_segmentation.py`.
+
+**RF-SEC-02 se da por cumplido con aislamiento por contenedor** (el requisito admite
+"máquinas/contenedores"). Límites aceptados: un fallo del kernel o del daemon Docker del host
+rompería el aislamiento (lo evitaría solo otra máquina), el `broker` es el componente de más
+privilegio compartido por los tres segmentos, y todos comparten el login de Codex
+(`ARGOS_CODEX_HOME`, la suscripción).
+
 ## Pendiente
 - Cifrado en reposo de la auditoría viva (hoy solo los backups van cifrados).
-- Aislamiento multi-máquina vía Herdr/SSH (`herdr --remote`) para perfiles sensibles.
+- Opcional: segmentos sensibles en otra máquina vía Herdr/SSH si el riesgo lo pide.
