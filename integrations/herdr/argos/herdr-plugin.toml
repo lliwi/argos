@@ -1,6 +1,6 @@
 id = "argos"
 name = "Argos"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.7.0"
 description = "Arnés de agentes Argos: chat con el núcleo persistente, consola y aprobaciones"
 platforms = ["linux"]
@@ -31,9 +31,16 @@ description = "Actividad de todas las sesiones y aprobaciones"
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-launch" console']
 
 # Los keybindings solo invocan acciones, así que cada forma de abrirlo tiene la suya.
+# Principal (prefix+a): pestaña «argos» (la reutiliza si existe) con el chat maximizado.
 [[actions]]
 id = "open-chat"
-title = "argos: abrir el chat"
+title = "argos: abrir el chat (pestaña argos, maximizado)"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-open" chat tab']
+
+[[actions]]
+id = "open-split"
+title = "argos: el chat en un split a la derecha"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/argos-open" chat split']
 

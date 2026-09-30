@@ -146,8 +146,10 @@ def _compact_line(data: dict, root: str) -> str | None:
     return None
 
 
-async def _attach(sid: str, interactive: bool = True, compact: bool = False) -> str:
-    """Muestra el progreso en vivo y resuelve aprobaciones desde la terminal (canal CLI)."""
+async def _attach(sid: str, interactive: bool = True, compact: bool = False,
+                  on_state=None) -> str:
+    """Muestra el progreso en vivo y resuelve aprobaciones desde la terminal (canal CLI).
+    `on_state(state, message)` (async) recibe blocked/working al pedir y resolver aprobaciones."""
     import sys
 
     from argos.audit.events import parse_event
@@ -165,6 +167,8 @@ async def _attach(sid: str, interactive: bool = True, compact: bool = False) -> 
                 console.print(f"\n[bold yellow]APROBACIÓN {data['id']}[/] {data['action']} "
                               f"(riesgo {data['risk_class']}, {data['timeout_s']}s)")
                 console.print(data["details"], markup=False, highlight=False)
+                if on_state:
+                    await on_state("blocked", f"aprobación: {data['action']}"[:80])
                 if not (interactive and sys.stdin.isatty()):
                     console.print(f"  responde con: argos core approve {data['id']} [--deny]")
                     continue
@@ -176,6 +180,8 @@ async def _attach(sid: str, interactive: bool = True, compact: bool = False) -> 
                 decision = "approved" if answer.strip().lower() in ("s", "si", "sí", "y") \
                     else "denied"
                 await client.decide(data["id"], decision, "cli-user", "cli")
+                if on_state:
+                    await on_state("working", "continuando tras la aprobación")
                 continue
             try:
                 event = parse_event(data)
@@ -221,31 +227,74 @@ def chat_cmd(
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Detalle técnico")] = False,
 ) -> None:
     """Conversación con el núcleo persistente. Cada mensaje es una sesión auditada, encadenada
-    al mismo hilo para que Argos recuerde de qué se habla. Comandos: /new, /threads,
-    /memoria, /help. Ctrl-D para salir."""
+    al mismo hilo para que Argos recuerde de qué se habla. Flechas para editar e historial,
+    Alt-Enter salto de línea, Ctrl-V pega una imagen; /adjuntar, /new, /threads, /memoria,
+    /help. Ctrl-D para salir."""
+    import shlex
+    import sys
+
+    from argos.attachments import AttachmentError
+    from argos.channels.chat_input import ChatInput, Pending
+    from argos.channels.console import HerdrReporter
     from argos.state import StateStore
 
     cfg = load_config()
     state = StateStore(cfg.data_path / "state.db")
     current: dict[str, str | None] = {"thread": thread}
+    pending = Pending()
+    # Dentro de Herdr, el chat se anuncia como agente (lista «agentes» de la barra lateral).
+    herdr = HerdrReporter()
+    if herdr.enabled:
+        sys.stdout.write("\033]0;argos · chat\007")      # título del pane: lo localiza el plugin
+        sys.stdout.flush()
+
+    def report(st: str, msg: str) -> None:
+        asyncio.run(herdr.state(st, msg))
 
     async def new_thread(title: str) -> str:
         async with _client() as client:
             return (await client.create_thread(title, profile, "chat"))["id"]
 
-    async def one(task: str) -> None:
+    async def one(task: str, attachments: list) -> None:
         if not current["thread"]:
             current["thread"] = await new_thread(task[:60])
+        await herdr.state("working", task[:80])
         async with _client() as client:
             sid = await client.submit(task=task, profile=profile, channel="chat",
-                                      thread_id=current["thread"])
+                                      thread_id=current["thread"],
+                                      attachments=[a.to_api() for a in attachments])
         if verbose:
             console.print(f"[dim]sesión {sid[:12]} · hilo {current['thread']}[/]")
-        await _attach(sid, compact=not verbose)
+        await _attach(sid, compact=not verbose, on_state=herdr.state)
 
     def command(line: str) -> None:
-        cmd = line.split()[0]
-        if cmd == "/new":
+        cmd, _, rest = line.partition(" ")
+        if cmd == "/adjuntar":
+            try:
+                paths = shlex.split(rest)
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/]")
+                return
+            if not paths:
+                console.print("uso: /adjuntar <ruta> [más rutas]  (también: arrastra el fichero "
+                              "o Ctrl-V con una imagen copiada)")
+                return
+            for p in paths:
+                try:
+                    console.print(f"📎 adjuntado {pending.add_paths([p])[0]}", highlight=False)
+                except AttachmentError as exc:
+                    console.print(f"[red]{exc}[/]")
+        elif cmd == "/adjuntos":
+            if not pending.items:
+                console.print("[dim]sin adjuntos pendientes[/]")
+            for i, a in enumerate(pending.items, 1):
+                kind = "imagen" if a.is_image else "fichero"
+                console.print(f"{i}. {a.name} ({kind}, {len(a.data) // 1024} KB)",
+                              highlight=False)
+        elif cmd == "/quitar":
+            gone = pending.remove(rest.strip())
+            console.print(f"quitado: {', '.join(gone)}" if gone else "[dim]nada que quitar[/]")
+        elif cmd == "/new":
             current["thread"] = None
             console.print("[dim]nueva conversación[/]")
         elif cmd == "/threads":
@@ -266,30 +315,50 @@ def chat_cmd(
                     console.print(_render_tools(await client.tools(profile)))
             asyncio.run(show_tools())
         else:
-            console.print("/new  nueva conversación · /threads  hilos recientes · "
-                          "/memoria  lo que recuerda · /herramientas  tools del perfil · "
-                          "Ctrl-D  salir")
+            console.print(
+                "/adjuntar <ruta>  adjuntar fichero/imagen · /adjuntos  ver · /quitar [n]  "
+                "descartar · /new  nueva conversación · /threads  hilos · /memoria  lo que "
+                "recuerda · /herramientas  tools del perfil\n"
+                "Flechas: editar e historial · Alt-Enter: salto de línea · Ctrl-V: pegar imagen "
+                "· arrastra ficheros para adjuntarlos · Ctrl-D: salir")
 
     where = f"hilo {thread}" if thread else "conversación nueva"
     console.print(f"[bold]Argos[/] · perfil {profile} · {where} · /help para comandos")
-    while True:
-        try:
-            task = input("\nargos> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            console.print()
-            return
-        if not task:
-            continue
-        if task.startswith("/"):
-            command(task)
-            continue
-        try:
-            asyncio.run(one(task))
-        except KeyboardInterrupt:
-            console.print("[yellow]desconectado (la sesión sigue en el núcleo; "
-                          "`argos core attach` para retomarla)[/]")
-        except RuntimeError as exc:
-            console.print(f"[red]{exc}[/]")
+    interactive = sys.stdin.isatty()
+    prompt = ChatInput(cfg.data_path / "chat_history", pending) if interactive else None
+    report("idle", "listo")
+    try:
+        while True:
+            try:
+                if prompt:
+                    console.print()
+                    task = prompt.read().strip()
+                else:
+                    task = input("\nargos> ").strip()
+            except KeyboardInterrupt:
+                continue                  # Ctrl-C en el prompt: descarta la línea
+            except EOFError:
+                console.print()
+                return
+            if not task and not pending.items:
+                continue
+            if task.startswith("/"):
+                command(task)
+                continue
+            if not task:
+                task = "Revisa los adjuntos."
+            attachments = pending.take()
+            try:
+                asyncio.run(one(task, attachments))
+            except KeyboardInterrupt:
+                console.print("[yellow]desconectado (la sesión sigue en el núcleo; "
+                              "`argos core attach` para retomarla)[/]")
+            except RuntimeError as exc:
+                console.print(f"[red]{exc}[/]")
+                pending.items[:0] = attachments        # no se pierden si el envío falló
+            report("idle", "listo")
+    finally:
+        asyncio.run(herdr.release())
 
 
 @app.command("matrix")

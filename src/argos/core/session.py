@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from argos.attachments import Attachment
 from argos.audit.events import MemoryEvent, SessionEnded, SessionStarted
 from argos.audit.redact import Redactor
 from argos.audit.store import AuditStore
@@ -66,6 +67,7 @@ class SessionOptions:
     allow_domains: list[str] = field(default_factory=list)
     session_budget_tokens: int | None = None
     input_files: dict[str, str] = field(default_factory=dict)  # nombre -> contenido (in/)
+    attachments: list[Attachment] = field(default_factory=list)  # del usuario (in/, binario)
     state_dir: Path | None = None        # estado durable de tools (p. ej. evals aisladas)
     workspace: Path | None = None        # subagentes: comparten el workspace del padre
     depth: int = 0                       # 0 = sesión raíz
@@ -249,6 +251,8 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
     (workspace / "out").mkdir(parents=True, exist_ok=True)
     for name, content in opts.input_files.items():
         (workspace / "in" / name).write_text(content, encoding="utf-8")
+    for att in opts.attachments:
+        (workspace / "in" / att.name).write_bytes(att.data)
 
     secrets = load_profile_secrets(cfg.root, profile, store.redactor)
     tools = build_tools(cfg)
@@ -361,6 +365,8 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             prune_failed_after=cfg.loop.prune_failed_after,
             lazy_tools=len(tools) > cfg.loop.lazy_tools_over)
         context_ref.append(context)
+        # Imágenes del usuario: el modelo las recibe en cada turno (máx. 5, por coste).
+        context.images = [workspace / "in" / a.name for a in opts.attachments if a.is_image][:5]
         if context.lazy_tools:
             tools.register(LoadToolsTool(context))
         context.tools = tools.specs()

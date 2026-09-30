@@ -27,6 +27,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from argos import __version__
+from argos.attachments import from_api, task_note
 from argos.audit.store import AuditStore
 from argos.config import Config
 from argos.core.session import SessionOptions, SessionRefused, catalog
@@ -114,8 +115,10 @@ def _tcp_ok(url: str) -> str:
 def _opts_from(body: dict[str, Any], channel: str) -> SessionOptions:
     if not isinstance(body.get("task"), str) or not body["task"].strip():
         raise ValueError("falta 'task'")
+    attachments = from_api(body.get("attachments"))   # AttachmentError es ValueError => 400
     return SessionOptions(
-        task=body["task"], profile=body.get("profile", "personal"),
+        task=body["task"] + task_note(attachments), attachments=attachments,
+        profile=body.get("profile", "personal"),
         channel=body.get("channel", channel), dry_run=body.get("dry_run"),
         allow_domains=list(body.get("allow_domains") or []),
         session_budget_tokens=body.get("budget_tokens"),

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from argos.audit.events import RiskClass
@@ -43,6 +44,8 @@ class ContextManager:
     loaded: set[str] = field(default_factory=set)
     # Skills activadas: contenido de confianza, va al sistema y no se poda (§9).
     skills_loaded: dict[str, str] = field(default_factory=dict)
+    # Imágenes adjuntas por el usuario: acompañan a cada petición (el modelo no guarda estado).
+    images: list[Path] = field(default_factory=list)
 
     def add_skill(self, name: str, body: str) -> None:
         self.skills_loaded[name] = body
@@ -110,7 +113,7 @@ class ContextManager:
                 messages.append(Message("assistant", step.decision_json))
             messages.append(Message("observation", step.observation))
         return ModelRequest(system=self.system_text(), tools=self.visible_tools(),
-                            messages=messages)
+                            messages=messages, images=list(self.images))
 
 
 def _short(args: dict[str, Any], limit: int = 80) -> str:

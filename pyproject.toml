@@ -16,6 +16,7 @@ dependencies = [
     "tzdata>=2024.1",
     "smbprotocol>=1.12",
     "puresnmp>=2.0",
+    "prompt-toolkit>=3.0.43",
 ]
 
 [project.scripts]

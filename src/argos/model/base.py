@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
@@ -62,6 +63,9 @@ class ModelRequest:
     system: str
     tools: list[ToolSpec]
     messages: list[Message]
+    # Imágenes adjuntas por el usuario (rutas locales al núcleo). Los proveedores que no las
+    # soportan las ignoran; el fichero sigue disponible en in/ para las tools.
+    images: list[Path] = field(default_factory=list)
 
     def render(self) -> str:
         """Serialización textual única para proveedores sin tool-calling nativo.

@@ -84,9 +84,14 @@ class CodexCliProvider:
         self.name = f"codex-cli:{model or 'default'}"
 
     def build_command(self, workdir: Path, schema: Path,
-                      route: Route | None = None) -> list[str]:
-        cmd = [
-            self.binary, "exec", "--json", "--ephemeral", "--ignore-user-config",
+                      route: Route | None = None,
+                      images: list[Path] | None = None) -> list[str]:
+        cmd = [self.binary, "exec"]
+        # Justo tras `exec`: `--image` admite varios valores y se tragaría el "-" final.
+        for image in images or []:
+            cmd += ["--image", str(image)]
+        cmd += [
+            "--json", "--ephemeral", "--ignore-user-config",
             "--skip-git-repo-check", "-s", "read-only", "-C", str(workdir),
             "--output-schema", str(schema), "--color", "never",
         ]
@@ -114,7 +119,7 @@ class CodexCliProvider:
             workdir.mkdir()
             schema = Path(tmp) / "decision.schema.json"
             schema.write_text(json.dumps(DECISION_SCHEMA))
-            cmd = self.build_command(workdir, schema, route)
+            cmd = self.build_command(workdir, schema, route, request.images)
             start = time.monotonic()
             try:
                 proc = await asyncio.create_subprocess_exec(
