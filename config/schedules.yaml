@@ -3,14 +3,22 @@
 timezone: Europe/Madrid
 
 schedules:
-  - name: resumen-recordatorios
-    cron: "0 8 * * *"            # todos los días a las 08:00
-    profile: personal
+  # Cada tarea la recibe el orquestador (perfil por defecto), que pide el trabajo al perfil
+  # adecuado. El resultado llega al chat de Matrix (notify). Cron: min hora día mes día_semana
+  # (0 = domingo).
+  - name: trayecto-trabajo
+    title: Trayecto trabajo
+    cron: "0 18 * * 0-4"         # domingo a jueves a las 18:00 (Europe/Madrid)
     task: >
-      Lista mis recordatorios pendientes y escribe en out/resumen.md los que vencen hoy o ya
-      han vencido, ordenados por fecha.
+      Decide si mañana voy al trabajo en bicicleta o en coche. Consulta la previsión por horas
+      de mañana en Barcelona (weather.hourly, con horas suficientes para cubrir todo mañana) y
+      fíjate solo en dos franjas: la ida, de 7:00 a 8:00, y la vuelta, de 17:00 a 18:00.
+      Elige COCHE si en cualquiera de las dos franjas hay lluvia (más de 0.2 mm o probabilidad
+      del 40 % o más), viento de 30 km/h o más, o temperatura por debajo de 5 °C; si no, BICI.
+      Responde en español, breve y para leer en el móvil: primera línea «🚲 Bici» o «🚗 Coche»
+      con el motivo principal; luego una línea por franja con temperatura, lluvia (mm y %) y
+      viento (km/h y dirección). No hagas nada más.
     budget_tokens: 40000
-    enabled: false               # actívalo cuando quieras que corra
 
 # Webhooks: POST http://127.0.0.1:<puerto>/hooks/<name> con cabecera X-Argos-Token.
 # El payload es dato no confiable; el perfil destino no puede tener secretos potentes.

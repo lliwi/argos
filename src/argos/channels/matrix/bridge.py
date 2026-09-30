@@ -69,6 +69,7 @@ class MatrixBridge:
         self.db.executescript(SCHEMA)
         self.runs: dict[str, _Run] = {}
         self.tasks: set[asyncio.Task[Any]] = set()
+        self._watcher: asyncio.Task[Any] | None = None
 
     # --- persistencia mínima -----------------------------------------------------------------
 
@@ -114,8 +115,8 @@ class MatrixBridge:
             first = await self.matrix.sync(None)
             since = self._kv("since", first["next_batch"])
             await self._handle_invites(first)
-        if self.cfg.notify_room:
-            self._spawn(self._forward_foreign_approvals())
+        if self._watcher is None or self._watcher.done():
+            self._watcher = asyncio.create_task(self._watch_global())
         while True:
             try:
                 data = await self.matrix.sync(since, timeout_ms=1000 if once else 30_000)
@@ -292,19 +293,47 @@ class MatrixBridge:
         await self.matrix.send_text(room_id, msg, thread_root=row[0] if row else None,
                                     notice=True)
 
-    async def _forward_foreign_approvals(self) -> None:
-        """Aprobaciones de sesiones de otros canales (CLI, consola) → sala de control."""
+    def _report_room(self) -> str | None:
+        """Dónde avisar de lo que no nace en Matrix: sala de control o el chat directo."""
+        if self.cfg.notify_room:
+            return self.cfg.notify_room
+        return next((r for u in self.cfg.allowed_users if (r := self._kv(f"dm:{u}"))), None)
+
+    async def _watch_global(self) -> None:
+        """Flujo global del núcleo: aprobaciones de otros canales → sala de control, y el
+        resultado de cada tarea programada → chat de avisos (notifica en el móvil)."""
+        scheduled: set[str] = set()
         while True:
             try:
                 async for ev in self.core.events_all():
-                    if ev.get("type") != "approval_request":
-                        continue
-                    if ev.get("origin_channel") == "matrix":
-                        continue   # ya las publica el hilo de su sesión
-                    await self._post_approval(ev, self.cfg.notify_room, None)
+                    kind = ev.get("type")
+                    if kind == "approval_request":
+                        if self.cfg.notify_room and ev.get("origin_channel") != "matrix":
+                            await self._post_approval(ev, self.cfg.notify_room, None)
+                    elif kind == "session" and ev.get("channel") == "scheduler" \
+                            and not ev.get("parent_session_id"):
+                        scheduled.add(ev["session_id"])
+                    elif kind == "session_end" and ev.get("session_id") in scheduled:
+                        scheduled.discard(ev["session_id"])
+                        await self._report_scheduled(ev)
             except Exception as exc:  # noqa: BLE001 — el núcleo puede reiniciarse
                 log.warning("flujo global interrumpido: %s; reintento", exc)
                 await asyncio.sleep(5)
+
+    async def _report_scheduled(self, ev: dict[str, Any]) -> None:
+        room = self._report_room()
+        if not room:
+            return
+        sid = ev.get("session_id")
+        sched = next((s for s in await self.core.schedules() if s.get("last_session") == sid),
+                     {})
+        if sched and not sched.get("notify", True):
+            return
+        title = sched.get("title") or sched.get("name") or "tarea programada"
+        status = ev.get("status")
+        answer = (ev.get("result") or "").strip() or "(sin respuesta)"
+        head = f"⏰ {title}" + ("" if status == "completed" else f" · ⚠️ {status}")
+        await self.matrix.send_text(room, f"{head}\n{answer}")
 
     # --- comandos ------------------------------------------------------------------------------
 

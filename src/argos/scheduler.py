@@ -100,8 +100,11 @@ class Cron:
 class ScheduleCfg(BaseModel):
     name: str
     cron: str
-    profile: str
     task: str
+    # Por defecto el orquestador: único punto de entrada, pide el trabajo al perfil adecuado.
+    profile: str = "orchestrator"
+    title: str | None = None     # nombre legible para los avisos (por defecto, `name`)
+    notify: bool = True          # enviar el resultado al canal de avisos (Matrix)
     enabled: bool = True
     dry_run: bool | None = None
     budget_tokens: int | None = None
@@ -233,7 +236,8 @@ class Scheduler:
                           status=st.last_status)
 
     def status(self) -> list[dict[str, Any]]:
-        return [{"name": s.name, "cron": s.cron, "profile": s.profile, "enabled": s.enabled,
+        return [{"name": s.name, "title": s.title or s.name, "notify": s.notify,
+                 "cron": s.cron, "profile": s.profile, "enabled": s.enabled,
                  "last_fired": self.state[s.name].last_fired,
                  "last_session": self.state[s.name].last_session,
                  "last_status": self.state[s.name].last_status,

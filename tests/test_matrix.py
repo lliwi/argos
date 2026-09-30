@@ -241,3 +241,28 @@ async def test_login_uses_localpart_and_reports_errors():
                                                                "user": "argos"}
     with pytest.raises(MatrixError, match="M_FORBIDDEN"):
         await login("http://hs", "argos", "mal", transport=t)
+
+
+async def test_scheduled_result_reaches_the_dm(cfg, store, fake_sandbox, tmp_path):
+    from argos.scheduler import ScheduleCfg, SchedulerCfg
+
+    hs = FakeHomeserver()
+    sched = SchedulerCfg(schedules=[
+        ScheduleCfg(name="trayecto", title="Trayecto trabajo", cron="0 18 * * 0-4", task="t"),
+        ScheduleCfg(name="silenciosa", cron="0 9 * * *", task="t", notify=False)])
+    scripts = [[final("🚲 Bici: mañana seco")], [final("no debería llegar")]]
+    async with running_core(cfg, store, scripts, fake_sandbox, sched=sched) as (core, client):
+        assert sched.schedules[0].profile == "orchestrator"      # punto de entrada por defecto
+        bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
+        await asyncio.sleep(0.2)                                 # observador global suscrito
+        core.scheduler.fire(sched.schedules[0])
+        core.scheduler.fire(sched.schedules[1])
+        for _ in range(60):
+            await asyncio.sleep(0.05)
+            if any(t.startswith("⏰") for t in hs.texts()):
+                break
+        await asyncio.sleep(0.3)
+        bridge._watcher.cancel()
+    reports = [(s["room"], s["content"]["body"]) for s in hs.sent
+               if s["content"].get("body", "").startswith("⏰")]
+    assert reports == [("!dm1:test", "⏰ Trayecto trabajo\n🚲 Bici: mañana seco")]
