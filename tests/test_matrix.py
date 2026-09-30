@@ -24,6 +24,8 @@ class FakeHomeserver:
         self.invites: dict[str, str] = {}             # room -> invitador
         self.sent: list[dict] = []
         self.joined: list[str] = []
+        self.created: list[dict] = []
+        self.direct: dict = {}
         self._ids = itertools.count(1)
         self._batch = itertools.count(1)
 
@@ -71,8 +73,22 @@ class FakeHomeserver:
                               "content": await request.json()})
             return JSONResponse({"event_id": eid})
 
+        async def create_room(request: Request):
+            self.created.append(await request.json())
+            return JSONResponse({"room_id": f"!dm{len(self.created)}:test"})
+
+        async def direct(request: Request):
+            if request.method == "PUT":
+                self.direct = await request.json()
+                return JSONResponse({})
+            if not self.direct:
+                return JSONResponse({"errcode": "M_NOT_FOUND"}, 404)
+            return JSONResponse(self.direct)
+
         base = "/_matrix/client/v3"
         return Starlette(routes=[
+            Route(base + "/createRoom", create_room, methods=["POST"]),
+            Route(base + "/user/{user}/account_data/m.direct", direct, methods=["GET", "PUT"]),
             Route(base + "/account/whoami", whoami),
             Route(base + "/sync", sync),
             Route(base + "/rooms/{room}/join", join, methods=["POST"]),
@@ -84,10 +100,11 @@ class FakeHomeserver:
                 for s in self.sent if s["type"] == "m.room.message"]
 
 
-async def make_bridge(hs: FakeHomeserver, core_client, tmp_path) -> MatrixBridge:
+async def make_bridge(hs: FakeHomeserver, core_client, tmp_path,
+                      open_dm: bool = False) -> MatrixBridge:
     matrix = MatrixClient("http://hs", "token", transport=httpx.ASGITransport(app=hs.app()))
     bridge = MatrixBridge(matrix, core_client, BridgeConfig(
-        allowed_users=[OWNER], progress_interval_s=0), tmp_path / "matrix.db")
+        allowed_users=[OWNER], progress_interval_s=0, open_dm=open_dm), tmp_path / "matrix.db")
     await bridge.run(once=True)          # primer arranque: fija el punto de partida
     return bridge
 
@@ -175,3 +192,52 @@ async def test_kill_switch_from_matrix(cfg, store, fake_sandbox, tmp_path):
         hs.say("!rearm")
         await pump(bridge, rounds=2)
         assert core.kill.active() is None
+
+
+async def test_opens_unencrypted_dm_once(cfg, store, fake_sandbox, tmp_path):
+    hs = FakeHomeserver()
+    async with running_core(cfg, store, [], fake_sandbox) as (core, client):
+        bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
+        await bridge.run(once=True)                       # reinicio: no crea otro
+    assert len(hs.created) == 1
+    room = hs.created[0]
+    assert room["is_direct"] is True and room["invite"] == [OWNER]
+    assert room["preset"] == "trusted_private_chat"
+    assert not any(e.get("type") == "m.room.encryption" for e in room["initial_state"])
+    assert hs.direct == {OWNER: ["!dm1:test"]}
+    assert "Hola, soy Argos" in hs.texts()[0]
+
+
+async def test_warns_once_in_encrypted_rooms(cfg, store, fake_sandbox, tmp_path):
+    hs = FakeHomeserver()
+    async with running_core(cfg, store, [], fake_sandbox) as (core, client):
+        bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
+        for sender in (OWNER, OWNER, STRANGER):
+            hs.pending.append((ROOM, {"type": "m.room.encrypted", "event_id": hs.eid(),
+                                      "sender": sender, "content": {"algorithm": "m.megolm"}}))
+        await pump(bridge, rounds=2)
+    warnings = [t for t in hs.texts() if t.startswith("🔒")]
+    assert len(warnings) == 1 and "chat «Argos»" in warnings[0]
+    assert store.sessions() == []
+
+
+async def test_login_uses_localpart_and_reports_errors():
+    import pytest
+
+    from argos.channels.matrix.client import MatrixError, login
+
+    seen = {}
+
+    async def handler(request: Request):
+        seen.update(await request.json())
+        if seen["password"] != "ok":
+            return JSONResponse({"errcode": "M_FORBIDDEN", "error": "Invalid password"}, 403)
+        return JSONResponse({"access_token": "t", "user_id": BOT, "device_id": "D"})
+
+    app = Starlette(routes=[Route("/_matrix/client/v3/login", handler, methods=["POST"])])
+    t = httpx.ASGITransport(app=app)
+    data = await login("http://hs", "@argos:test", "ok", transport=t)
+    assert data["device_id"] == "D" and seen["identifier"] == {"type": "m.id.user",
+                                                               "user": "argos"}
+    with pytest.raises(MatrixError, match="M_FORBIDDEN"):
+        await login("http://hs", "argos", "mal", transport=t)

@@ -44,6 +44,9 @@ class BridgeConfig:
     profile: str = "personal"
     notify_room: str | None = None
     progress_interval_s: float = 3.0
+    # Abre (una vez) un chat directo SIN cifrar con el primer usuario autorizado: los DMs que
+    # crea Element nacen cifrados y el puente no puede leerlos (ADR-0012).
+    open_dm: bool = True
 
 
 @dataclass
@@ -103,6 +106,8 @@ class MatrixBridge:
     async def run(self, once: bool = False) -> None:
         me = await self.matrix.whoami()
         log.info("puente Matrix como %s; usuarios autorizados: %s", me, self.cfg.allowed_users)
+        if self.cfg.open_dm and self.cfg.allowed_users:
+            await self.ensure_dm(self.cfg.allowed_users[0])
         since = self._kv("since")
         if since is None:
             # Primer arranque: no se ejecutan mensajes antiguos, solo se marca el punto de partida.
@@ -131,6 +136,22 @@ class MatrixBridge:
             if once:
                 return
 
+    async def ensure_dm(self, user_id: str) -> str:
+        """Chat directo sin cifrar con `user_id`; lo crea e invita la primera vez."""
+        key = f"dm:{user_id}"
+        if room := self._kv(key):
+            return room
+        room = await self.matrix.create_dm(
+            user_id, topic="Argos · sin cifrar (el bot no soporta E2EE)")
+        self._kv(key, room)
+        log.info("chat directo %s creado con %s", room, user_id)
+        await self.matrix.send_text(
+            room, "Hola, soy Argos. Escríbeme aquí una tarea y la haré en un hilo; en el hilo "
+                  "seguimos la conversación y te pediré las aprobaciones. !ayuda para comandos.\n"
+                  "Este chat NO está cifrado a propósito (el bot aún no soporta E2EE); no "
+                  "actives el cifrado o dejaré de leerte.")
+        return room
+
     async def _handle_invites(self, data: dict[str, Any]) -> None:
         for room_id, room in (data.get("rooms", {}).get("invite") or {}).items():
             events = room.get("invite_state", {}).get("events", [])
@@ -146,6 +167,9 @@ class MatrixBridge:
     async def _handle_event(self, room_id: str, ev: dict[str, Any]) -> None:
         sender = ev.get("sender")
         if sender == self.matrix.user_id or sender not in self.cfg.allowed_users:
+            return
+        if ev.get("type") == "m.room.encrypted":
+            await self._warn_encrypted(room_id)
             return
         content = ev.get("content") or {}
         rel = content.get("m.relates_to") or {}
@@ -169,6 +193,20 @@ class MatrixBridge:
             await self._decide(room_id, pending, body, sender)
             return
         await self._submit(room_id, root, body)
+
+    async def _warn_encrypted(self, room_id: str) -> None:
+        """Una vez por sala: el bot no puede leer mensajes cifrados; mejor decirlo que callar."""
+        if self._kv(f"warned:{room_id}"):
+            return
+        self._kv(f"warned:{room_id}", "1")
+        dm = next((self._kv(f"dm:{u}") for u in self.cfg.allowed_users if self._kv(f"dm:{u}")),
+                  None)
+        where = " Escríbeme en el chat «Argos», que está sin cifrar." if dm and dm != room_id \
+            else ""
+        with contextlib.suppress(MatrixError):
+            await self.matrix.send_text(
+                room_id, "🔒 Esta sala está cifrada y no puedo leer tus mensajes (aún no soporto "
+                         "E2EE)." + where, notice=True)
 
     # --- tareas ------------------------------------------------------------------------------
 

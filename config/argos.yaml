@@ -94,10 +94,10 @@ kali:                      # MCP de Kali para auditoría de servicios propios (U
   token_env: KALI_API_TOKEN
 
 matrix:                    # canal Matrix (RF-07, ADR-0012). Token en .env.matrix, no aquí.
-  homeserver: null         # p. ej. https://matrix.tudominio.org
-  user_id: null            # p. ej. "@argos:tudominio.org" (cuenta dedicada del bot)
-  allowed_users: []        # a quién obedece, p. ej. ["@lliwi:tudominio.org"]
-  profile: personal
+  homeserver: https://matrix.playingwith.info
+  user_id: "@hermes:matrix.playingwith.info"      # cuenta del bot (credenciales: inventario)
+  allowed_users: ["@llibert:matrix.playingwith.info"]   # a quién obedece
+  profile: orchestrator    # como el chat: delega en personal/infra según la tarea
   notify_room: null        # sala de control: aprobaciones de sesiones de otros canales
   progress_interval_s: 3
 

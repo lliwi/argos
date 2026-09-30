@@ -20,7 +20,14 @@
   Matrix como aprobador. Las de otros canales van a `notify_room` si está configurada.
 - **Comandos**: `!estado`, `!memoria`, `!kill <motivo>` (RF-GOV-02 desde el móvil), `!rearm`.
 - **Despliegue**: servicio `matrix` sin socket Docker ni clave age; token en `.env.matrix` (600,
-  fuera de git), obtenido con `scripts/matrix-login.sh` sin guardar la contraseña.
+  fuera de git). Se obtiene con `argos matrix-login` a partir del inventario (servicio `matrix`:
+  user, password) sin mostrar ni la contraseña ni el token (o con `scripts/matrix-login.sh`).
+  El contenedor del puente solo recibe el token, nunca la contraseña.
+- **Chat directo sin cifrar** (actualización 2026-09-30): los DMs creados desde Element nacen
+  cifrados y el puente no los lee. Al arrancar, el bot crea él mismo un DM **sin**
+  `m.room.encryption` con `allowed_users[0]`, lo marca en `m.direct` y saluda; se recuerda y no
+  se repite. Si recibe `m.room.encrypted` de un usuario autorizado avisa una vez por sala en vez
+  de callar. Perfil del canal: `orchestrator` (como el chat).
 
 ## Consecuencias
 - Si la sala es cifrada, el bot no verá los mensajes: usar una sala sin cifrar dedicada.

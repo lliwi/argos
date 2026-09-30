@@ -390,7 +390,8 @@ def matrix_cmd() -> None:
             async with _client() as core:
                 bridge = MatrixBridge(matrix, core, BridgeConfig(
                     allowed_users=mc.allowed_users, profile=mc.profile,
-                    notify_room=mc.notify_room, progress_interval_s=mc.progress_interval_s),
+                    notify_room=mc.notify_room, progress_interval_s=mc.progress_interval_s,
+                    open_dm=mc.open_dm),
                     cfg.data_path / "matrix.db")
                 await bridge.run()
         finally:
@@ -399,6 +400,63 @@ def matrix_cmd() -> None:
         asyncio.run(go())
     except KeyboardInterrupt:
         pass
+
+
+@app.command("matrix-login")
+def matrix_login_cmd(
+    force: Annotated[bool, typer.Option("--force", help="Rehacer login aunque el token valga")]
+    = False,
+) -> None:
+    """Obtiene el token del bot con las credenciales del inventario (servicio `matrix`: user,
+    password y opcionalmente homeserver) y lo guarda en .env.matrix (600). Ni la contraseña ni
+    el token se muestran ni pasan por el modelo."""
+    import os
+    from pathlib import Path
+
+    from argos.channels.matrix.client import MatrixClient, MatrixError, login
+    from argos.inventory import load_inventory
+
+    cfg = load_config()
+    inv = load_inventory(cfg.root)
+    svc = inv.get("matrix")
+    user = svc.get("user") or svc.get("user_id") or cfg.matrix.user_id
+    password = inv.secret("matrix", "password")
+    if not user or not password:
+        console.print("[red]Falta user o password en secrets/inventory.yaml (servicio matrix)[/]")
+        raise typer.Exit(2)
+    homeserver = (svc.get("homeserver") or svc.get("url") or cfg.matrix.homeserver
+                  or f"https://{str(user).split(':', 1)[1]}")
+    env_path = cfg.root / ".env.matrix"
+
+    async def valid(token: str) -> str | None:
+        client = MatrixClient(homeserver, token)
+        try:
+            return await client.whoami()
+        except (MatrixError, OSError):
+            return None
+        finally:
+            await client.aclose()
+
+    old = ""
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if line.startswith(f"{cfg.matrix.token_env}="):
+                old = line.split("=", 1)[1].strip()
+    if old and not force and (who := asyncio.run(valid(old))):
+        console.print(f"El token de .env.matrix ya es válido para {who}; nada que hacer "
+                      "(--force para renovarlo).")
+        return
+    try:
+        data = asyncio.run(login(homeserver, str(user), password))
+    except (MatrixError, OSError) as exc:
+        console.print(f"[red]login fallido:[/] {exc}")
+        raise typer.Exit(1) from exc
+    fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(f"{cfg.matrix.token_env}={data['access_token']}\n")
+    Path(env_path).chmod(0o600)
+    console.print(f"Token guardado en .env.matrix para {data.get('user_id')} "
+                  f"(dispositivo {data.get('device_id')}) en {homeserver}.")
 
 
 # --- memoria (RF-18) -----------------------------------------------------------------------------

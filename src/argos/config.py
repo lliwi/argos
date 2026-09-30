@@ -119,6 +119,7 @@ class MatrixCfg(BaseModel):
     notify_room: str | None = None      # sala de control para aprobaciones de otros canales
     token_env: str = "ARGOS_MATRIX_TOKEN"
     progress_interval_s: float = 3.0
+    open_dm: bool = True                # abre un chat directo sin cifrar con allowed_users[0]
 
 
 class AuditCfg(BaseModel):
