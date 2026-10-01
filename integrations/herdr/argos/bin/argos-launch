@@ -1,14 +1,21 @@
 #!/bin/sh
-# Asegura el núcleo persistente (compose `daemon`, segmento main) y ejecuta un subcomando de la
-# CLI de Argos en el host: chat | console | status.
+# Ejecuta un subcomando de la CLI de Argos en el host: chat | console | status.
+# - Remoto (producción, ADR-0025): si existe secrets/api-client.env, se conecta al núcleo de esa
+#   URL (https + token + certificado fijado) y no arranca nada en local.
+# - Local: asegura el núcleo persistente (compose `daemon`, segmento main).
 set -eu
 REPO="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$REPO"
 
 UV="$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")"
 SOCK="$REPO/var/segments/main/run/argos.sock"
+REMOTE="$REPO/secrets/api-client.env"
 
-if [ ! -S "$SOCK" ]; then
+if [ -f "$REMOTE" ]; then
+  set -a
+  . "$REMOTE"
+  set +a
+elif [ ! -S "$SOCK" ]; then
   echo "Arrancando el núcleo de Argos…"
   docker compose up -d egress-main >/dev/null
   docker compose --profile daemon up -d daemon >/dev/null
@@ -19,6 +26,7 @@ fi
 case "${1:-chat}" in
   chat)    exec "$UV" run --quiet argos chat ;;
   console) exec "$UV" run --quiet argos console ;;
-  status)  exec "$UV" run --quiet argos core status ;;
+  status)  echo "núcleo: ${ARGOS_API_URL:-local ($SOCK)}"
+           exec "$UV" run --quiet argos core status ;;
   *)       echo "uso: argos-launch chat|console|status" >&2; exit 2 ;;
 esac

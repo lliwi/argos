@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,9 @@ class CoreClient:
     ) -> None:
         if url:
             if not url.startswith("https://"):
-                raise CoreUnavailable("ARGOS_API_URL debe ser https:// (el token no viaja en claro)")
+                raise CoreUnavailable(
+                    "ARGOS_API_URL debe ser https:// (el token no viaja en claro)"
+                )
             if not token:
                 raise CoreUnavailable("falta ARGOS_API_TOKEN para el núcleo remoto")
             if ca is not None and not ca.is_file():
@@ -39,7 +42,7 @@ class CoreClient:
             self._client = httpx.AsyncClient(
                 base_url=url.rstrip("/"),
                 headers={"Authorization": f"Bearer {token}"},
-                verify=str(ca) if ca else True,
+                verify=ssl.create_default_context(cafile=str(ca)) if ca else True,
                 timeout=timeout,
             )
             return

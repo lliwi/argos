@@ -64,6 +64,20 @@ scripts/herdr-argos.sh                           # desde un pane de Herdr: conso
 Tareas programadas y webhooks en [config/schedules.yaml](config/schedules.yaml)
 ([ADR-0010](docs/adr/0010-nucleo-persistente-y-canales.md)).
 
+## Producción: IP macvlan y API remota
+En el servidor, el daemon recibe una IP propia en la red macvlan `int-lan` y sirve la API
+también por TCP (`:8788`) con TLS y token obligatorios
+([ADR-0025](docs/adr/0025-produccion-macvlan-api-remota.md)).
+```bash
+# en el servidor (una vez): token + certificado con la IP en su SAN + fichero del cliente
+uv run argos api-setup 192.168.0.34
+scripts/up.sh --prod             # daemon + matrix con compose.prod.yaml (int-lan, 192.168.0.34)
+scripts/up.sh                    # lo mismo en local, sin macvlan ni API TCP
+```
+En el equipo con Herdr, copia `secrets/api-client.env` y `secrets/api-cert.pem` del servidor a
+su `secrets/` (nunca `api-key.pem`): el plugin y `argos chat|console|core` pasan a usar
+`https://192.168.0.34:8788`. Red y IP se cambian con `ARGOS_LAN_NETWORK` / `ARGOS_LAN_IP`.
+
 ## Matrix (Fase 3)
 ```bash
 scripts/matrix-login.sh https://matrix.tudominio.org argos   # token del bot → secrets/matrix.env

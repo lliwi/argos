@@ -3,6 +3,12 @@
 Abre el chat de Argos (tarea → progreso → aprobaciones en el mismo panel) y la consola de
 operador. Si el núcleo persistente no está en marcha, lo arranca (`compose --profile daemon`).
 
+**Núcleo en el servidor de producción** (ADR-0025): si existe `secrets/api-client.env` en el repo,
+el plugin se conecta al núcleo remoto (`https://192.168.0.34:8788`, token + certificado fijado) y
+no arranca nada en local. Copia del servidor `secrets/api-client.env` y `secrets/api-cert.pem`
+(se generan allí con `argos api-setup 192.168.0.34`). Para volver al núcleo local, borra
+`secrets/api-client.env`. `argos.check` muestra a cuál está conectado.
+
 ## Instalación
 
 ```bash
