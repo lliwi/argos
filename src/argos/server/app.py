@@ -3,6 +3,8 @@
 - API completa sobre socket Unix (`<datos del segmento>/argos.sock`, modo 600): la autenticación
   es el permiso del fichero. Solo procesos del propio usuario/contenedor pueden hablar con ella.
 - Webhooks en TCP (por defecto 127.0.0.1): solo `POST /hooks/<nombre>` con token compartido.
+- Opcional (producción, ADR-0025): la misma API por TCP, siempre con TLS y token Bearer; sin
+  ambos no arranca (fail-closed).
 - Progreso en vivo por Server-Sent Events: los mismos eventos de auditoría, ya redactados.
 """
 
@@ -17,6 +19,7 @@ import socket
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -37,6 +40,45 @@ from argos.server.hub import ApprovalHub, EventBus, SessionManager
 from argos.state import StateStore
 
 TERMINAL = {"completed", "failed", "aborted", "killed"}
+MIN_TOKEN_LEN = 32
+
+
+@dataclass
+class TcpApi:
+    """API por TCP (p. ej. en la IP macvlan de producción). TLS + token obligatorios."""
+
+    host: str
+    port: int
+    token: str
+    certfile: Path
+    keyfile: Path
+
+    def check(self) -> None:
+        if len(self.token or "") < MIN_TOKEN_LEN:
+            raise ValueError(
+                f"API TCP: falta ARGOS_API_TOKEN o tiene menos de {MIN_TOKEN_LEN} caracteres "
+                "(genera uno con `argos api-setup`)"
+            )
+        for f in (self.certfile, self.keyfile):
+            if not f.is_file():
+                raise ValueError(f"API TCP: falta {f} (TLS obligatorio; `argos api-setup`)")
+
+
+class BearerAuth:
+    """ASGI: exige `Authorization: Bearer <token>` (solo en la API TCP; el socket Unix se protege
+    con su permiso). Comparación en tiempo constante."""
+
+    def __init__(self, app, token: str) -> None:
+        self.app = app
+        self._expected = f"Bearer {token}".encode()
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http":
+            got = dict(scope.get("headers") or []).get(b"authorization", b"")
+            if not hmac.compare_digest(got, self._expected):
+                await JSONResponse({"error": "no autorizado"}, 401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 class Core:
@@ -415,8 +457,12 @@ async def serve(
     hooks_port: int | None,
     scheduler_interval_s: float = 15,
     run_scheduler: bool = True,
+    tcp_api: TcpApi | None = None,
 ) -> None:
     import uvicorn
+
+    if tcp_api:
+        tcp_api.check()  # antes de abrir nada: sin TLS + token no hay API por red
 
     # Directorio privado: aunque el socket naciera con permisos amplios, nadie más llega a él.
     socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -438,6 +484,20 @@ async def serve(
                     build_hooks(core),
                     host=hooks_host or "127.0.0.1",
                     port=hooks_port,
+                    log_level="warning",
+                )
+            )
+        )
+    if tcp_api:
+        servers.append(
+            uvicorn.Server(
+                uvicorn.Config(
+                    BearerAuth(api, tcp_api.token),
+                    host=tcp_api.host,
+                    port=tcp_api.port,
+                    ssl_certfile=str(tcp_api.certfile),
+                    ssl_keyfile=str(tcp_api.keyfile),
+                    lifespan="off",  # el apagado del núcleo ya lo hace el servidor del socket
                     log_level="warning",
                 )
             )

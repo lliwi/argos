@@ -105,23 +105,105 @@ app.add_typer(core_app, name="core")
 def serve(
     hooks_port: Annotated[int | None, typer.Option(help="Puerto TCP para webhooks")] = None,
     hooks_host: Annotated[str, typer.Option(help="Interfaz de webhooks")] = "127.0.0.1",
+    api_port: Annotated[
+        int | None, typer.Option(help="API también por TCP (TLS + ARGOS_API_TOKEN obligatorios)")
+    ] = None,
+    api_host: Annotated[str, typer.Option(help="Interfaz de la API TCP")] = "127.0.0.1",
 ) -> None:
-    """Arranca el núcleo persistente: API en socket Unix + scheduler (+ webhooks)."""
+    """Arranca el núcleo persistente: API en socket Unix + scheduler (+ webhooks, + API TCP)."""
+    import os
+
     from argos.scheduler import load_scheduler_cfg
-    from argos.server.app import Core
+    from argos.server.app import Core, TcpApi
     from argos.server.app import serve as run_server
 
     cfg, store = _ctx()
+    tcp = None
+    if api_port:
+        tcp = TcpApi(
+            api_host,
+            api_port,
+            os.environ.get("ARGOS_API_TOKEN", ""),
+            cfg.root / "secrets" / "api-cert.pem",
+            cfg.root / "secrets" / "api-key.pem",
+        )
+        try:
+            tcp.check()
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(2) from exc
     core = Core(cfg, store, lambda: make_provider(cfg), load_scheduler_cfg(cfg))
     console.print(
         f"[green]Argos[/] segmento [bold]{cfg.segment}[/] · API {cfg.api_socket}"
+        + (f" + https://{api_host}:{api_port}" if tcp else "")
         + (f" · webhooks {hooks_host}:{hooks_port}" if hooks_port else "")
         + f" · {len(core.scheduler.sched.schedules)} tareas programadas"
     )
     try:
-        asyncio.run(run_server(core, cfg.api_socket, hooks_host, hooks_port))
+        asyncio.run(run_server(core, cfg.api_socket, hooks_host, hooks_port, tcp_api=tcp))
     except KeyboardInterrupt:
         console.print("núcleo detenido")
+
+
+@app.command("api-setup")
+def api_setup_cmd(
+    host: Annotated[str, typer.Argument(help="IP con la que se llega al núcleo (macvlan)")],
+    port: Annotated[int, typer.Option(help="Puerto de la API TCP")] = 8788,
+    force: Annotated[bool, typer.Option("--force", help="Regenerar token y certificado")] = False,
+) -> None:
+    """Prepara la API TCP de producción (ADR-0025): token, certificado TLS autofirmado con la IP en
+    su SAN y el fichero del cliente. Todo en secrets/ (600); el token no se muestra."""
+    import ipaddress
+    import os
+    import secrets as pysecrets
+    import shutil
+    import subprocess
+
+    try:
+        ipaddress.ip_address(host)
+    except ValueError as exc:
+        console.print("[red]host debe ser una IP (la SAN del certificado se fija a ella)[/]")
+        raise typer.Exit(2) from exc
+    if shutil.which("openssl") is None:
+        console.print("[red]falta openssl[/]")
+        raise typer.Exit(2)
+    sec = load_config().root / "secrets"
+    server_env, client_env = sec / "api.env", sec / "api-client.env"
+    cert, key = sec / "api-cert.pem", sec / "api-key.pem"
+    if not force and any(p.exists() for p in (server_env, cert, key)):
+        console.print("Ya existe la configuración de la API TCP (--force para regenerarla).")
+        raise typer.Exit(1)
+
+    def write(path, text: str) -> None:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        path.chmod(0o600)
+
+    proc = subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+         "-nodes", "-days", "825", "-subj", "/CN=argos", "-addext", f"subjectAltName=IP:{host}",
+         "-keyout", str(key), "-out", str(cert)],
+        capture_output=True, text=True,
+    )  # fmt: skip
+    if proc.returncode != 0:
+        console.print(f"[red]openssl falló:[/] {proc.stderr.strip()[:300]}")
+        raise typer.Exit(1)
+    key.chmod(0o600)
+    cert.chmod(0o600)
+    token = pysecrets.token_urlsafe(32)
+    write(server_env, f"ARGOS_API_TOKEN={token}\n")
+    write(
+        client_env,
+        f"ARGOS_API_URL=https://{host}:{port}\nARGOS_API_TOKEN={token}\n"
+        "ARGOS_API_CA=secrets/api-cert.pem\n",
+    )
+    console.print(
+        f"Listo para https://{host}:{port}:\n"
+        "  servidor: secrets/api.env, secrets/api-cert.pem, secrets/api-key.pem\n"
+        "  cliente : copia secrets/api-client.env y secrets/api-cert.pem al secrets/ del equipo\n"
+        "            con Herdr (nunca api-key.pem). Luego: scripts/up.sh --prod"
+    )
 
 
 def _client():
@@ -129,7 +211,7 @@ def _client():
 
     cfg = load_config()
     try:
-        return CoreClient(cfg.api_socket)
+        return CoreClient.connect(cfg.api_socket, cfg.root)
     except CoreUnavailable as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(2) from exc

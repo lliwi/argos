@@ -1,0 +1,25 @@
+# Producción (ADR-0025): se aplica con `scripts/up.sh --prod` encima de compose.yaml.
+#
+# El núcleo persistente (`daemon`) recibe una IP propia en la LAN (red macvlan `int-lan`, creada
+# fuera de este proyecto) y sirve, además del socket Unix, la API por TCP en :8788 con TLS + token
+# (lo exige el propio núcleo: sin secrets/api.env ni certificado no arranca). Los webhooks quedan
+# en :8787 de esa IP. Prepáralo una vez con `argos api-setup 192.168.0.34`.
+#
+# Solo el daemon entra en la LAN: core-osint, core-pentest, matrix y el broker no cambian
+# (tests/test_segmentation.py).
+services:
+  daemon:
+    command: ["serve", "--hooks-host", "0.0.0.0", "--hooks-port", "8787",
+              "--api-host", "0.0.0.0", "--api-port", "8788"]
+    env_file:
+      - {path: secrets/hooks.env, required: false}
+      - {path: secrets/api.env, required: true}       # ARGOS_API_TOKEN
+    networks:
+      egress_main: {}
+      int-lan:
+        ipv4_address: ${ARGOS_LAN_IP:-192.168.0.34}
+
+networks:
+  int-lan:
+    name: ${ARGOS_LAN_NETWORK:-int-lan}
+    external: true

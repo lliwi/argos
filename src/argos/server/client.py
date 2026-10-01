@@ -1,8 +1,13 @@
-"""Cliente de la API del núcleo persistente (socket Unix). Lo usan la CLI y los canales."""
+"""Cliente de la API del núcleo persistente. Lo usan la CLI y los canales.
+
+Local: socket Unix. Remoto (núcleo en otra máquina, p. ej. la IP macvlan de producción,
+ADR-0025): `ARGOS_API_URL` (https), `ARGOS_API_TOKEN` y `ARGOS_API_CA` (certificado fijado).
+"""
 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -15,8 +20,30 @@ class CoreUnavailable(RuntimeError):
 
 
 class CoreClient:
-    def __init__(self, socket_path: Path, timeout: float = 30) -> None:
-        if not socket_path.exists():
+    def __init__(
+        self,
+        socket_path: Path | None = None,
+        timeout: float = 30,
+        *,
+        url: str | None = None,
+        token: str = "",
+        ca: Path | None = None,
+    ) -> None:
+        if url:
+            if not url.startswith("https://"):
+                raise CoreUnavailable("ARGOS_API_URL debe ser https:// (el token no viaja en claro)")
+            if not token:
+                raise CoreUnavailable("falta ARGOS_API_TOKEN para el núcleo remoto")
+            if ca is not None and not ca.is_file():
+                raise CoreUnavailable(f"no existe el certificado del núcleo {ca} (ARGOS_API_CA)")
+            self._client = httpx.AsyncClient(
+                base_url=url.rstrip("/"),
+                headers={"Authorization": f"Bearer {token}"},
+                verify=str(ca) if ca else True,
+                timeout=timeout,
+            )
+            return
+        if socket_path is None or not socket_path.exists():
             raise CoreUnavailable(
                 f"el núcleo no está en marcha (no existe {socket_path}); "
                 "arráncalo con `argos serve`"
@@ -25,6 +52,19 @@ class CoreClient:
             transport=httpx.AsyncHTTPTransport(uds=str(socket_path)),
             base_url="http://argos",
             timeout=timeout,
+        )
+
+    @classmethod
+    def connect(cls, socket_path: Path, root: Path, timeout: float = 30) -> CoreClient:
+        """Remoto si hay ARGOS_API_URL; si no, el socket local. ARGOS_API_CA relativo se
+        resuelve desde la raíz del repo."""
+        url = os.environ.get("ARGOS_API_URL", "").strip()
+        if not url:
+            return cls(socket_path, timeout)
+        ca_env = os.environ.get("ARGOS_API_CA", "").strip()
+        ca = (root / ca_env if not Path(ca_env).is_absolute() else Path(ca_env)) if ca_env else None
+        return cls(
+            url=url, token=os.environ.get("ARGOS_API_TOKEN", "").strip(), ca=ca, timeout=timeout
         )
 
     async def __aenter__(self) -> CoreClient:

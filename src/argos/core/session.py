@@ -7,9 +7,12 @@ Matrix o el runner de evaluación; el canal se pasa como dato y queda en auditor
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from argos.attachments import Attachment
@@ -52,7 +55,10 @@ from argos.tools.scratchpad import SCRATCHPAD_TOOLS
 from argos.tools.shell import ShellExecTool
 from argos.tools.workspace import WORKSPACE_TOOLS
 
-_SLOTS: asyncio.Semaphore | None = None  # RF-GOV-03 (en proceso; entre procesos: Fase 2)
+# Huecos de concurrencia (RF-GOV-03), por (clave, límite). Solo dentro del proceso: un `argos run`
+# de la CLI no ve las sesiones del daemon (contarlas por la BD bloquearía huecos con sesiones
+# que murieron sin cerrarse).
+_SLOTS: dict[tuple[str, int], asyncio.Semaphore] = {}
 
 
 class SessionRefused(RuntimeError):
@@ -73,6 +79,7 @@ class SessionOptions:
     state_dir: Path | None = None  # estado durable de tools (p. ej. evals aisladas)
     workspace: Path | None = None  # subagentes: comparten el workspace del padre
     depth: int = 0  # 0 = sesión raíz
+    parent_profile: str | None = None  # subagentes: perfil de quien delega
     session_id: str | None = None  # lo fija la API para poder devolverlo al instante
     thread_id: str | None = None  # conversación a la que pertenece (argos.state)
     trace_id: str | None = None
@@ -278,8 +285,6 @@ async def run_session(
     sandbox_factory=None,
     on_progress=None,
 ) -> SessionResult:
-    global _SLOTS
-    _SLOTS = _SLOTS or asyncio.Semaphore(cfg.concurrency.max_sessions)
     store = store or AuditStore(cfg.data_path, Redactor(cfg.audit.redact_pii))
     if reason := KillSwitch(store).active():
         raise SessionRefused(f"kill switch activo ({reason}); usa `argos rearm`")
@@ -289,13 +294,61 @@ async def run_session(
             f"el perfil {opts.profile!r} no pertenece al segmento {cfg.segment!r}; ejecútalo con "
             f"ARGOS_SEGMENT={cfg.segment_of(opts.profile) or '?'}"
         )
-    if opts.depth > 0:
-        # Los subagentes no ocupan hueco: los acota max_depth y el presupuesto del padre.
+    async with contextlib.AsyncExitStack() as held:
+        for what, sem in _slots_for(opts, cfg):
+            await _acquire(sem, what, opts, cfg)
+            held.callback(sem.release)
         return await _run(opts, cfg, provider, store, approver, sandbox_factory, on_progress)
-    if _SLOTS.locked():
-        raise SessionRefused(f"límite de sesiones concurrentes ({cfg.concurrency.max_sessions})")
-    async with _SLOTS:
-        return await _run(opts, cfg, provider, store, approver, sandbox_factory, on_progress)
+
+
+def _slots_for(opts: SessionOptions, cfg: Config) -> list[tuple[str, asyncio.Semaphore]]:
+    """Huecos que ocupa la sesión (RF-GOV-03).
+
+    - Global: solo sesiones raíz; los subagentes ya los acotan max_depth y el presupuesto del padre.
+    - Perfil (`max_concurrent`): también los subagentes delegados a ese perfil, salvo los del mismo
+      perfil que su padre, que trabajan dentro del hueco de este (contarlos lo bloquearía contra sí
+      mismo).
+    """
+    out = []
+    if opts.depth == 0:
+        limit = cfg.concurrency.max_sessions
+        out.append((f"global, {limit}", _SLOTS.setdefault(("*", limit), asyncio.Semaphore(limit))))
+    limit = cfg.profile(opts.profile).max_concurrent
+    if limit and not (opts.depth > 0 and opts.parent_profile == opts.profile):
+        key = (f"profile:{opts.profile}", limit)
+        out.append(
+            (f"perfil {opts.profile}, {limit}", _SLOTS.setdefault(key, asyncio.Semaphore(limit)))
+        )
+    return out
+
+
+async def _acquire(sem: asyncio.Semaphore, what: str, opts: SessionOptions, cfg: Config) -> None:
+    """Espera un hueco hasta concurrency.wait_s; si no llega, rechaza y lo anota en el segmento."""
+    wait_s = cfg.concurrency.wait_s
+    if not sem.locked():
+        await sem.acquire()  # hay hueco: no bloquea (wait_for con 0 s fallaría aun así)
+        return
+    try:
+        await asyncio.wait_for(sem.acquire(), wait_s)
+    except TimeoutError:
+        with open(cfg.data_path / "concurrency.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "ts": datetime.now(UTC).isoformat(),
+                        "action": "refused",
+                        "limit": what,
+                        "profile": opts.profile,
+                        "channel": opts.channel,
+                        "parent_session_id": opts.parent_session_id,
+                        "waited_s": wait_s,
+                    }
+                )
+                + "\n"
+            )
+        raise SessionRefused(
+            f"límite de concurrencia ({what}) ocupado; esperé {wait_s} s. Reinténtalo más tarde."
+        ) from None
 
 
 async def _run(
@@ -443,26 +496,31 @@ async def _run(
                     raise ValueError(f"delegación a {sub_profile!r} no permitida")
                 child_dry = cfg.profile(sub_profile).dry_run if target else dry_run
                 remaining = max(1, budget.session_limit - budget.spent)
-                child = await run_session(
-                    SessionOptions(
-                        task=task,
-                        profile=sub_profile,
-                        channel=opts.channel,
-                        dry_run=child_dry,
-                        parent_session_id=sid,
-                        allow_domains=opts.allow_domains,
-                        session_budget_tokens=min(limit, remaining),
-                        state_dir=opts.state_dir,
-                        workspace=workspace,
-                        depth=opts.depth + 1,
-                    ),
-                    cfg,
-                    provider,
-                    store=store,
-                    approver=approver,
-                    sandbox_factory=sandbox_factory,
-                    on_progress=on_progress,
-                )
+                try:
+                    child = await run_session(
+                        SessionOptions(
+                            task=task,
+                            profile=sub_profile,
+                            channel=opts.channel,
+                            dry_run=child_dry,
+                            parent_session_id=sid,
+                            allow_domains=opts.allow_domains,
+                            session_budget_tokens=min(limit, remaining),
+                            state_dir=opts.state_dir,
+                            workspace=workspace,
+                            depth=opts.depth + 1,
+                            parent_profile=profile.name,
+                        ),
+                        cfg,
+                        provider,
+                        store=store,
+                        approver=approver,
+                        sandbox_factory=sandbox_factory,
+                        on_progress=on_progress,
+                    )
+                except SessionRefused as exc:
+                    # Hueco del perfil ocupado (RF-GOV-03): el padre sigue y lo explica.
+                    return ("-" * 12, "refused", str(exc), 0, 0)
                 return (child.session_id, child.status, child.message, child.steps, child.tokens)
 
             targets = {

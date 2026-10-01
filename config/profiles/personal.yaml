@@ -7,3 +7,4 @@ secrets: []
 # los hosts externos se añaden por dominio concreto aquí (RF-EX-04).
 egress_extra: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]
 dry_run: false
+max_concurrent: 2          # RF-GOV-03

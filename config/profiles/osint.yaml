@@ -8,3 +8,4 @@ secrets: []               # RF-SEC-03: nunca credenciales potentes (la api key d
 egress_extra: []           # se amplía por tarea, explícitamente
 dry_run: false
 retention_days: 7          # RF-LEG-03
+max_concurrent: 2          # RF-GOV-03

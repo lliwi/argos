@@ -57,8 +57,9 @@ approval:                  # RF-GOV-04/05
   require_for: [destructive, offensive]
   timeout_s: 120           # vencido => abort (fail-safe)
 
-concurrency:               # RF-GOV-03
-  max_sessions: 4
+concurrency:               # RF-GOV-03 (por perfil: max_concurrent en config/profiles/*.yaml)
+  max_sessions: 4          # sesiones raíz simultáneas (los subagentes no cuentan aquí)
+  wait_s: 60               # si no hay hueco, espera hasta esto y luego rechaza
 
 # Segmentos de seguridad (RF-SEC-02, ADR-0008): cada uno con núcleo, red de sandbox, proxy de
 # egress y datos propios. Un perfil pertenece a un único segmento. Activo: $ARGOS_SEGMENT.

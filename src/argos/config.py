@@ -77,7 +77,8 @@ class ApprovalCfg(BaseModel):
 
 
 class ConcurrencyCfg(BaseModel):
-    max_sessions: int = 4
+    max_sessions: int = Field(4, ge=1)  # sesiones raíz simultáneas en el proceso
+    wait_s: int = Field(60, ge=0)  # espera por un hueco antes de rechazar (0 = rechazo inmediato)
 
 
 class SandboxCfg(BaseModel):
@@ -150,6 +151,9 @@ class Profile(BaseModel):
     powerful: bool = False
     # Perfiles a los que este perfil puede delegar subtareas (orquestador → especialistas).
     delegate_profiles: list[str] = Field(default_factory=list)
+    # Sesiones simultáneas de este perfil, contando subagentes delegados (RF-GOV-03). None = solo
+    # el límite global.
+    max_concurrent: int | None = Field(None, ge=1)
 
     @property
     def is_powerful(self) -> bool:

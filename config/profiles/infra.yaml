@@ -9,3 +9,4 @@ secrets: []                # Portainer y demás credenciales viven en secrets/in
 egress_extra: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]
 powerful: true             # gestiona infra propia (Portainer, etc.): capacidad potente (P2)
 dry_run: false             # acciones ejecutan TRAS aprobación humana (RF-GOV-04); true = solo simula
+max_concurrent: 1          # RF-GOV-03: actúa sobre sistemas reales; una sesión (o delegación) a la vez
