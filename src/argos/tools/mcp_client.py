@@ -277,6 +277,20 @@ def weather_server(city: str = "") -> McpServerSpec:
     )
 
 
+def osint_server(url: str, api_key: str) -> McpServerSpec:
+    """MCP del backend OSINT propio (UC-1). URL y api key del inventario, nunca del modelo."""
+    return McpServerSpec(
+        name="osint",
+        command=sys.executable,
+        args=["-m", "argos.mcp_servers.osint.server"],
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_OSINT_URL": url or "",
+            "ARGOS_OSINT_KEY": api_key or "",
+        },
+    )
+
+
 def notion_server(token: str, dry_run: bool) -> McpServerSpec:
     """MCP de Notion (UC-4). Token del inventario, nunca del modelo."""
     return McpServerSpec(

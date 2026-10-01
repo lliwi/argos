@@ -525,6 +525,30 @@ def matrix_login_cmd(
     )
 
 
+@app.command("osint-env")
+def osint_env_cmd() -> None:
+    """Copia la url y la api key del backend OSINT (inventario, servicio `osint-mcp`) a
+    secrets/osint.env (600), lo único de secrets/ que recibe el contenedor core-osint. La clave no
+    se muestra ni pasa por el modelo."""
+    import os
+
+    from argos.inventory import load_inventory
+
+    cfg = load_config()
+    inv = load_inventory(cfg.root)
+    url = inv.get("osint-mcp").get("url")
+    key = inv.secret("osint-mcp", "api_key")
+    if not url or not key:
+        console.print("[red]Falta url o api_key en secrets/inventory.yaml (servicio osint-mcp)[/]")
+        raise typer.Exit(2)
+    env_path = cfg.root / "secrets" / "osint.env"
+    fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(f"ARGOS_OSINT_URL={url}\nARGOS_OSINT_KEY={key}\n")
+    env_path.chmod(0o600)
+    console.print(f"Escrito secrets/osint.env (backend {url}). Recrea core-osint para cargarlo.")
+
+
 # --- memoria (RF-18) -----------------------------------------------------------------------------
 
 memory_app = typer.Typer(

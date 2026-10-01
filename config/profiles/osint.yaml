@@ -1,8 +1,10 @@
 name: osint
 description: Investigación de fuentes abiertas (UC-1). Lee contenido no confiable => sin poder.
-tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*]
+tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*,
+        osint.*]           # backend OSINT propio (ADR-0023): personas => aprobación + purpose
 reads_untrusted: true
-secrets: []               # RF-SEC-03: nunca credenciales potentes
+secrets: []               # RF-SEC-03: nunca credenciales potentes (la api key del backend
+                          # OSINT solo consulta; llega por secrets/osint.env, ADR-0023)
 egress_extra: []           # se amplía por tarea, explícitamente
 dry_run: false
 retention_days: 7          # RF-LEG-03

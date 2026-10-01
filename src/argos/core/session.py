@@ -7,6 +7,7 @@ Matrix o el runner de evaluación; el canal se pasa como dato y queda en auditor
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,7 @@ from argos.tools.mcp_client import (
     media_server,
     nas_server,
     notion_server,
+    osint_server,
     portainer_server,
     reminders_server,
     weather_server,
@@ -114,6 +116,17 @@ class LazySandbox:
     async def destroy(self) -> None:
         if self._inner is not None:
             await self._inner.destroy()
+
+
+def osint_credentials(inv, redactor: Redactor | None = None) -> tuple[str, str]:
+    """URL y api key del backend OSINT: del inventario (host / main) o, en el contenedor osint
+    —que no ve secrets/—, del entorno que carga secrets/osint.env (`argos osint-env`)."""
+    svc = inv.get("osint-mcp")
+    url = svc.get("url") or os.environ.get("ARGOS_OSINT_URL", "")
+    key = inv.secret("osint-mcp", "api_key") or os.environ.get("ARGOS_OSINT_KEY", "")
+    if key and redactor is not None:
+        redactor.register_secret(key)
+    return url, key
 
 
 def build_tools(cfg: Config) -> ToolRegistry:
@@ -215,6 +228,9 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
                     inv.secret("notion", "api_key") or inv.secret("notion", "token") or "", True
                 )
             ):
+                reg.register(tool)
+        if profile.allows_tool("osint.recon"):
+            for tool in await mcp.connect(osint_server(*osint_credentials(inv))):
                 reg.register(tool)
         reg = reg.for_profile(profile)
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
@@ -395,6 +411,11 @@ async def _run(
                 inventory.secret("notion", "api_key") or inventory.secret("notion", "token") or ""
             )
             for tool in await mcp.connect(notion_server(notion_token, dry_run)):
+                tools.register(tool)
+        if profile.allows_tool("osint.recon"):
+            # OSINT (UC-1): personas => aprobación + purpose en auditoría (ADR-0023).
+            url, key = osint_credentials(inventory, store.redactor)
+            for tool in await mcp.connect(osint_server(url, key)):
                 tools.register(tool)
 
         session_limit = opts.session_budget_tokens or cfg.budget.session_tokens

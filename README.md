@@ -130,6 +130,16 @@ crear/añadir/actualizar (validado contra el esquema real) y archivar con aproba
 `notion` recoge las buenas prácticas (base TODO, informes, seguridad). Comparte en Notion las
 páginas que quieras que vea la integración.
 
+**OSINT** ([ADR-0023](docs/adr/0023-mcp-osint.md)): servicio `osint-mcp` (url + api_key del
+backend OSINT propio) y `osint.*` solo en el perfil `osint`. `osint.recon` (dominio, IP, empresa)
+es lectura; `osint.person` (persona, usuario, email, teléfono, brechas, matrícula) pide
+aprobación humana y una finalidad (`purpose`) que queda auditada. El contenedor `core-osint` no ve
+`secrets/`: tras configurar o rotar la clave, cópiala a su entorno y recrea el contenedor.
+```bash
+uv run argos osint-env                                   # secrets/osint.env (600)
+ARGOS_SEGMENT=osint scripts/argos run -p osint "recon pasivo de midominio.org"
+```
+
 ## Acceso de red del sandbox
 Por defecto el sandbox solo sale a repositorios de paquetes (RF-EX-04). Los perfiles `personal` e
 `infra` incluyen además las redes locales (RFC1918: `192.168.0.0/16`, `10.0.0.0/8`,

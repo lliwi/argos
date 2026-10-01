@@ -63,4 +63,6 @@ def test_no_network_shared_between_segments():
 def test_tokens_live_under_secrets():
     assert SERVICES["matrix"]["env_file"][0]["path"] == "secrets/matrix.env"
     assert SERVICES["daemon"]["env_file"][0]["path"] == "secrets/hooks.env"
+    assert SERVICES["core-osint"]["env_file"] == [{"path": "secrets/osint.env", "required": False}]
+    assert "env_file" not in SERVICES["core-pentest"]
     assert "docker.sock" not in str([SERVICES[n].get("volumes") for n in SEGMENT])
