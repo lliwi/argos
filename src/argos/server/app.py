@@ -42,8 +42,9 @@ TERMINAL = {"completed", "failed", "aborted", "killed"}
 class Core:
     """Estado del núcleo persistente, compartido por la API y los webhooks."""
 
-    def __init__(self, cfg: Config, store: AuditStore, provider_factory,
-                 sched_cfg: SchedulerCfg) -> None:
+    def __init__(
+        self, cfg: Config, store: AuditStore, provider_factory, sched_cfg: SchedulerCfg
+    ) -> None:
         self.cfg = cfg
         self.store = store
         self.bus = EventBus()
@@ -64,25 +65,45 @@ class Core:
             checks["audit_store"] = "ok"
         except Exception as exc:  # noqa: BLE001
             checks["audit_store"] = f"error: {exc}"
-        checks["sandbox"] = (await _broker_ok(self.cfg.broker_socket())
-                             if self.cfg.sandbox.backend == "broker" else await _docker_ok())
+        checks["sandbox"] = (
+            await _broker_ok(self.cfg.broker_socket())
+            if self.cfg.sandbox.backend == "broker"
+            else await _docker_ok()
+        )
         checks["egress_proxy"] = await asyncio.to_thread(_tcp_ok, self.cfg.segment_proxy())
-        checks["model_engine"] = ("ok" if self.cfg.model.provider != "codex"
-                                  or shutil.which("codex") else "error: codex no encontrado")
+        checks["model_engine"] = (
+            "ok"
+            if self.cfg.model.provider != "codex" or shutil.which("codex")
+            else "error: codex no encontrado"
+        )
         checks["scheduler"] = {"last_tick": self.scheduler.last_tick}
-        ok = all(v == "ok" for k, v in checks.items() if k != "scheduler"
-                 and not str(v).startswith("unknown"))
-        return {"status": "ok" if ok else "degraded", "version": __version__,
-                "segment": self.cfg.segment, "uptime_s": int(time.time() - self.started),
-                "kill_switch": self.kill.active(), "running_sessions": len(self.manager.running()),
-                "pending_approvals": len(self.hub.pending), "checks": checks}
+        ok = all(
+            v == "ok"
+            for k, v in checks.items()
+            if k != "scheduler" and not str(v).startswith("unknown")
+        )
+        return {
+            "status": "ok" if ok else "degraded",
+            "version": __version__,
+            "segment": self.cfg.segment,
+            "uptime_s": int(time.time() - self.started),
+            "kill_switch": self.kill.active(),
+            "running_sessions": len(self.manager.running()),
+            "pending_approvals": len(self.hub.pending),
+            "checks": checks,
+        }
 
 
 async def _docker_ok() -> str:
     try:
         proc = await asyncio.create_subprocess_exec(
-            "docker", "info", "--format", "{{.ServerVersion}}",
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            "docker",
+            "info",
+            "--format",
+            "{{.ServerVersion}}",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
         return "ok" if await asyncio.wait_for(proc.wait(), 5) == 0 else "error: docker info"
     except (FileNotFoundError, TimeoutError):
         return "error: docker no disponible"
@@ -112,17 +133,21 @@ def _tcp_ok(url: str) -> str:
 
 # --- API (socket Unix) ---------------------------------------------------------------------------
 
+
 def _opts_from(body: dict[str, Any], channel: str) -> SessionOptions:
     if not isinstance(body.get("task"), str) or not body["task"].strip():
         raise ValueError("falta 'task'")
-    attachments = from_api(body.get("attachments"))   # AttachmentError es ValueError => 400
+    attachments = from_api(body.get("attachments"))  # AttachmentError es ValueError => 400
     return SessionOptions(
-        task=body["task"] + task_note(attachments), attachments=attachments,
+        task=body["task"] + task_note(attachments),
+        attachments=attachments,
         profile=body.get("profile", "personal"),
-        channel=body.get("channel", channel), dry_run=body.get("dry_run"),
+        channel=body.get("channel", channel),
+        dry_run=body.get("dry_run"),
         allow_domains=list(body.get("allow_domains") or []),
         session_budget_tokens=body.get("budget_tokens"),
-        thread_id=body.get("thread_id"))
+        thread_id=body.get("thread_id"),
+    )
 
 
 def build_api(core: Core) -> Starlette:
@@ -131,9 +156,13 @@ def build_api(core: Core) -> Starlette:
 
     async def state(_: Request) -> JSONResponse:
         """Contadores baratos para sondeo frecuente (consolas); /health es el chequeo completo."""
-        return JSONResponse({"running_sessions": len(core.manager.running()),
-                             "pending_approvals": len(core.hub.pending),
-                             "kill_switch": core.kill.active()})
+        return JSONResponse(
+            {
+                "running_sessions": len(core.manager.running()),
+                "pending_approvals": len(core.hub.pending),
+                "kill_switch": core.kill.active(),
+            }
+        )
 
     async def list_sessions(_: Request) -> JSONResponse:
         running = {s.session_id for s in core.manager.running()}
@@ -146,7 +175,7 @@ def build_api(core: Core) -> Starlette:
         try:
             opts = _opts_from(await request.json(), "api")
             if opts.thread_id:
-                core.state.thread(opts.thread_id)   # KeyError => 400
+                core.state.thread(opts.thread_id)  # KeyError => 400
             sid = core.manager.start(opts)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, 400)
@@ -160,9 +189,13 @@ def build_api(core: Core) -> Starlette:
         rows = [r for r in core.store.sessions(500) if r["id"] == sid]
         if not rows and not entry:
             return JSONResponse({"error": "no existe"}, 404)
-        return JSONResponse({"session": rows[0] if rows else None,
-                             "live": bool(entry and not entry.task.done()),
-                             "result": entry.result if entry else None})
+        return JSONResponse(
+            {
+                "session": rows[0] if rows else None,
+                "live": bool(entry and not entry.task.done()),
+                "result": entry.result if entry else None,
+            }
+        )
 
     async def cancel_session(request: Request) -> JSONResponse:
         ok = core.manager.cancel(request.path_params["sid"])
@@ -173,12 +206,18 @@ def build_api(core: Core) -> Starlette:
         replay = request.query_params.get("replay", "1") != "0"
 
         async def gen() -> AsyncIterator[bytes]:
-            queue = core.bus.subscribe(sid)   # antes del replay: no se pierde nada
+            queue = core.bus.subscribe(sid)  # antes del replay: no se pierde nada
             seen: set[str] = set()
             entry = core.manager.sessions.get(sid)
             if entry is None and not core.store.events(sid, ["session"]):
-                yield _sse({"type": "stream_end", "session_id": sid, "status": "unknown",
-                            "message": "sesión desconocida"})
+                yield _sse(
+                    {
+                        "type": "stream_end",
+                        "session_id": sid,
+                        "status": "unknown",
+                        "message": "sesión desconocida",
+                    }
+                )
                 core.bus.unsubscribe(sid, queue)
                 return
             try:
@@ -200,8 +239,13 @@ def build_api(core: Core) -> Starlette:
                         # La tarea pudo terminar sin session_end (p. ej. cancelada antes de
                         # arrancar): se cierra el flujo con su resultado real.
                         if entry is not None and entry.task.done() and queue.empty():
-                            yield _sse({"type": "stream_end", "session_id": sid,
-                                        **(entry.result or {"status": "unknown"})})
+                            yield _sse(
+                                {
+                                    "type": "stream_end",
+                                    "session_id": sid,
+                                    **(entry.result or {"status": "unknown"}),
+                                }
+                            )
                             return
                         idle += 1
                         if idle % 15 == 0:
@@ -219,6 +263,7 @@ def build_api(core: Core) -> Starlette:
 
     async def stream_all(_: Request) -> StreamingResponse:
         """Todos los eventos de todas las sesiones en vivo (consolas y canales globales)."""
+
         async def gen() -> AsyncIterator[bytes]:
             queue = core.bus.subscribe("*")
             try:
@@ -239,8 +284,9 @@ def build_api(core: Core) -> Starlette:
         profile = body.get("profile", "personal")
         if not core.cfg.allows_profile(profile):
             return JSONResponse({"error": f"perfil {profile!r} fuera del segmento"}, 409)
-        t = core.state.create_thread(str(body.get("title") or "conversación"),
-                                     str(body.get("channel") or "api"), profile)
+        t = core.state.create_thread(
+            str(body.get("title") or "conversación"), str(body.get("channel") or "api"), profile
+        )
         return JSONResponse(t.__dict__, 201)
 
     async def list_tools(request: Request) -> JSONResponse:
@@ -267,9 +313,12 @@ def build_api(core: Core) -> Starlette:
         decision = body.get("decision")
         if decision not in ("approved", "denied"):
             return JSONResponse({"error": "decision debe ser approved|denied"}, 400)
-        ok = core.hub.decide(request.path_params["aid"], decision,
-                             str(body.get("approver", "api-user"))[:64],
-                             str(body.get("channel", "api"))[:32])
+        ok = core.hub.decide(
+            request.path_params["aid"],
+            decision,
+            str(body.get("approver", "api-user"))[:64],
+            str(body.get("channel", "api"))[:32],
+        )
         return JSONResponse({"ok": ok}, 200 if ok else 404)
 
     async def kill(request: Request) -> JSONResponse:
@@ -292,26 +341,28 @@ def build_api(core: Core) -> Starlette:
         sid = core.scheduler.fire(sch, reason="manual")
         return JSONResponse({"session_id": sid, "skipped": sid is None})
 
-    return Starlette(routes=[
-        Route("/health", health),
-        Route("/state", state),
-        Route("/sessions", list_sessions, methods=["GET"]),
-        Route("/sessions", create_session, methods=["POST"]),
-        Route("/sessions/{sid}", get_session),
-        Route("/sessions/{sid}/cancel", cancel_session, methods=["POST"]),
-        Route("/sessions/{sid}/events", stream_events),
-        Route("/events", stream_all),
-        Route("/threads", list_threads, methods=["GET"]),
-        Route("/memory", list_memory),
-        Route("/tools", list_tools),
-        Route("/threads", create_thread, methods=["POST"]),
-        Route("/approvals", list_approvals),
-        Route("/approvals/{aid}", decide_approval, methods=["POST"]),
-        Route("/kill", kill, methods=["POST"]),
-        Route("/rearm", rearm, methods=["POST"]),
-        Route("/schedules", schedules),
-        Route("/schedules/{name}/run", run_schedule, methods=["POST"]),
-    ])
+    return Starlette(
+        routes=[
+            Route("/health", health),
+            Route("/state", state),
+            Route("/sessions", list_sessions, methods=["GET"]),
+            Route("/sessions", create_session, methods=["POST"]),
+            Route("/sessions/{sid}", get_session),
+            Route("/sessions/{sid}/cancel", cancel_session, methods=["POST"]),
+            Route("/sessions/{sid}/events", stream_events),
+            Route("/events", stream_all),
+            Route("/threads", list_threads, methods=["GET"]),
+            Route("/memory", list_memory),
+            Route("/tools", list_tools),
+            Route("/threads", create_thread, methods=["POST"]),
+            Route("/approvals", list_approvals),
+            Route("/approvals/{aid}", decide_approval, methods=["POST"]),
+            Route("/kill", kill, methods=["POST"]),
+            Route("/rearm", rearm, methods=["POST"]),
+            Route("/schedules", schedules),
+            Route("/schedules/{name}/run", run_schedule, methods=["POST"]),
+        ]
+    )
 
 
 def _sse(data: dict[str, Any]) -> bytes:
@@ -319,6 +370,7 @@ def _sse(data: dict[str, Any]) -> bytes:
 
 
 # --- webhooks (TCP) ------------------------------------------------------------------------------
+
 
 def build_hooks(core: Core) -> Starlette:
     hooks = {h.name: h for h in core.scheduler.sched.hooks if h.enabled}
@@ -339,9 +391,12 @@ def build_hooks(core: Core) -> Starlette:
             payload = raw.decode("utf-8", errors="replace")
         try:
             sid = core.manager.start(
-                SessionOptions(task=render_hook_task(hook, payload), profile=hook.profile,
-                               channel="webhook"),
-                interactive=False, tags={"hook": hook.name})
+                SessionOptions(
+                    task=render_hook_task(hook, payload), profile=hook.profile, channel="webhook"
+                ),
+                interactive=False,
+                tags={"hook": hook.name},
+            )
         except SessionRefused as exc:
             return JSONResponse({"error": str(exc)}, 409)
         core.scheduler._log(hook=hook.name, action="fire", session_id=sid)
@@ -352,8 +407,15 @@ def build_hooks(core: Core) -> Starlette:
 
 # --- arranque ------------------------------------------------------------------------------------
 
-async def serve(core: Core, socket_path: Path, hooks_host: str | None, hooks_port: int | None,
-                scheduler_interval_s: float = 15, run_scheduler: bool = True) -> None:
+
+async def serve(
+    core: Core,
+    socket_path: Path,
+    hooks_host: str | None,
+    hooks_port: int | None,
+    scheduler_interval_s: float = 15,
+    run_scheduler: bool = True,
+) -> None:
     import uvicorn
 
     # Directorio privado: aunque el socket naciera con permisos amplios, nadie más llega a él.
@@ -370,19 +432,27 @@ async def serve(core: Core, socket_path: Path, hooks_host: str | None, hooks_por
     api.router.lifespan_context = lifespan
     servers = [uvicorn.Server(uvicorn.Config(api, uds=str(socket_path), log_level="warning"))]
     if hooks_port:
-        servers.append(uvicorn.Server(uvicorn.Config(
-            build_hooks(core), host=hooks_host or "127.0.0.1", port=hooks_port,
-            log_level="warning")))
+        servers.append(
+            uvicorn.Server(
+                uvicorn.Config(
+                    build_hooks(core),
+                    host=hooks_host or "127.0.0.1",
+                    port=hooks_port,
+                    log_level="warning",
+                )
+            )
+        )
 
     async def restrict_socket() -> None:
         for _ in range(100):
             if socket_path.exists():
-                os.chmod(socket_path, 0o600)   # la autenticación de la API es este permiso
+                os.chmod(socket_path, 0o600)  # la autenticación de la API es este permiso
                 return
             await asyncio.sleep(0.05)
 
-    sched_task = (asyncio.create_task(core.scheduler.run(scheduler_interval_s))
-                  if run_scheduler else None)
+    sched_task = (
+        asyncio.create_task(core.scheduler.run(scheduler_interval_s)) if run_scheduler else None
+    )
     try:
         await asyncio.gather(*(s.serve() for s in servers), restrict_socket())
     finally:

@@ -35,8 +35,9 @@ def _host() -> str | None:
 
 
 def _smb() -> NasSmb | None:
-    host, user, pw = (os.environ.get(k) for k in
-                      ("ARGOS_NAS_HOST", "ARGOS_NAS_USER", "ARGOS_NAS_PASSWORD"))
+    host, user, pw = (
+        os.environ.get(k) for k in ("ARGOS_NAS_HOST", "ARGOS_NAS_USER", "ARGOS_NAS_PASSWORD")
+    )
     return NasSmb(host, user or "", pw or "") if host and user else None
 
 
@@ -65,8 +66,14 @@ async def list(path: str = "") -> str:
         items = await asyncio.to_thread(smb.list_dir, path)
     except NasError as exc:
         return f"ERROR: {exc}"
-    brief = [{"nombre": e["name"], "tipo": "dir" if e["dir"] else "fichero",
-              "tamaño": "" if e["dir"] else _size(e["size"])} for e in items]
+    brief = [
+        {
+            "nombre": e["name"],
+            "tipo": "dir" if e["dir"] else "fichero",
+            "tamaño": "" if e["dir"] else _size(e["size"]),
+        }
+        for e in items
+    ]
     return json.dumps(brief, ensure_ascii=False, indent=2)[:12000] if brief else "(vacío)"
 
 
@@ -95,8 +102,15 @@ async def storage() -> str:
     # Solo sistemas de ficheros (rutas que empiezan por "/"): son los volúmenes de disco. Se deja
     # fuera memoria/swap para no confundirlos con "disco lleno". Si no hay, se muestran todos.
     fs = [r for r in rows if r["name"].startswith("/")] or rows
-    out = [{"volumen": r["name"], "total": _size(r["total"]), "usado": _size(r["used"]),
-            "porcentaje": f"{r['percent']}%"} for r in fs]
+    out = [
+        {
+            "volumen": r["name"],
+            "total": _size(r["total"]),
+            "usado": _size(r["used"]),
+            "porcentaje": f"{r['percent']}%",
+        }
+        for r in fs
+    ]
     return json.dumps(out, ensure_ascii=False, indent=2)[:12000] if out else "(sin datos)"
 
 

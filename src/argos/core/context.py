@@ -65,21 +65,35 @@ class ContextManager:
     def visible_tools(self) -> list[ToolSpec]:
         if not self.lazy_tools:
             return self.tools
-        return [t if t.name in self.loaded or t.name in self.always_loaded
-                else ToolSpec(t.name, t.description, None) for t in self.tools]
+        return [
+            t
+            if t.name in self.loaded or t.name in self.always_loaded
+            else ToolSpec(t.name, t.description, None)
+            for t in self.tools
+        ]
 
-    def add_step(self, decision: Decision, result: ToolResult | None, raw_observation: str,
-                 failed: bool, summary: str | None = None, ref: str | None = None) -> None:
+    def add_step(
+        self,
+        decision: Decision,
+        result: ToolResult | None,
+        raw_observation: str,
+        failed: bool,
+        summary: str | None = None,
+        ref: str | None = None,
+    ) -> None:
         decision_json = json.dumps(
             {"type": decision.type, "tool": decision.tool, "args": decision.args},
-            ensure_ascii=False)
+            ensure_ascii=False,
+        )
         # RNF-06: ningún secreto conocido entra en el contexto, aunque una tool lo imprima.
         raw_observation = self.store.redactor.redact_secrets(raw_observation)
         summary = self.store.redactor.redact_secrets(summary) if summary else summary
         if summary and ref:
             # RF-CTX-03: resumen + referencia; el detalle se pagina con context.read_ref.
-            observation = (f"<untrusted>\n[resumen de {len(raw_observation)} caracteres; detalle "
-                           f"con context.read_ref ref={ref}]\n{summary[:2000]}\n</untrusted>")
+            observation = (
+                f"<untrusted>\n[resumen de {len(raw_observation)} caracteres; detalle "
+                f"con context.read_ref ref={ref}]\n{summary[:2000]}\n</untrusted>"
+            )
         else:
             observation = self._fit(raw_observation)
         summary = f"{decision.tool}({_short(decision.args)}) → fallo"
@@ -95,16 +109,19 @@ class ContextManager:
             return f"<untrusted>\n{text}\n</untrusted>"
         ref = self.store.put_blob(text)
         head = text[: self.max_chars * 2 // 3]
-        tail = text[-self.max_chars // 3:]
-        return (f"<untrusted>\n{head}\n[... {len(text) - len(head) - len(tail)} caracteres "
-                f"omitidos; usa context.read_ref con ref={ref} para paginar ...]\n{tail}\n"
-                f"</untrusted>")
+        tail = text[-self.max_chars // 3 :]
+        return (
+            f"<untrusted>\n{head}\n[... {len(text) - len(head) - len(tail)} caracteres "
+            f"omitidos; usa context.read_ref con ref={ref} para paginar ...]\n{tail}\n"
+            f"</untrusted>"
+        )
 
     def build(self) -> ModelRequest:
         messages = [Message("user", self.task)]
         failed_idx = [i for i, s in enumerate(self.steps) if s.failed]
-        prunable = set(failed_idx[: -self.prune_failed_after] if self.prune_failed_after else
-                       failed_idx)
+        prunable = set(
+            failed_idx[: -self.prune_failed_after] if self.prune_failed_after else failed_idx
+        )
         for i, step in enumerate(self.steps):
             if i in prunable:
                 messages.append(Message("observation", f"(intento fallido podado: {step.summary})"))
@@ -112,8 +129,12 @@ class ContextManager:
             if step.decision_json:
                 messages.append(Message("assistant", step.decision_json))
             messages.append(Message("observation", step.observation))
-        return ModelRequest(system=self.system_text(), tools=self.visible_tools(),
-                            messages=messages, images=list(self.images))
+        return ModelRequest(
+            system=self.system_text(),
+            tools=self.visible_tools(),
+            messages=messages,
+            images=list(self.images),
+        )
 
 
 def _short(args: dict[str, Any], limit: int = 80) -> str:
@@ -125,10 +146,15 @@ class LoadToolsTool(Tool):
     """Carga el esquema completo de tools concretas en el contexto (RF-10)."""
 
     name = "tools.load"
-    description = ("Carga los parámetros de las herramientas indicadas antes de usarlas "
-                   "(las que aparecen sin parámetros).")
-    parameters = {"type": "object", "required": ["names"],
-                  "properties": {"names": {"type": "array", "items": {"type": "string"}}}}
+    description = (
+        "Carga los parámetros de las herramientas indicadas antes de usarlas "
+        "(las que aparecen sin parámetros)."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["names"],
+        "properties": {"names": {"type": "array", "items": {"type": "string"}}},
+    }
     risk_class = RiskClass.READ
     idempotent = True
 
@@ -152,9 +178,13 @@ class ReadRefTool(Tool):
     name = "context.read_ref"
     description = "Lee un fragmento de una salida larga previamente truncada (por su ref)."
     parameters = {
-        "type": "object", "required": ["ref"],
-        "properties": {"ref": {"type": "string"}, "offset": {"type": "integer", "default": 0},
-                       "length": {"type": "integer", "default": 3000}},
+        "type": "object",
+        "required": ["ref"],
+        "properties": {
+            "ref": {"type": "string"},
+            "offset": {"type": "integer", "default": 0},
+            "length": {"type": "integer", "default": 3000},
+        },
     }
     risk_class = RiskClass.READ
     idempotent = True
@@ -170,5 +200,5 @@ class ReadRefTool(Tool):
         offset = max(0, int(args.get("offset") or 0))
         # Por debajo de observation_max_chars para que la página no vuelva a truncarse.
         length = min(max(1, int(args.get("length") or 3000)), 3000)
-        chunk = text[offset:offset + length]
+        chunk = text[offset : offset + length]
         return ToolResult(f"[{offset}:{offset + len(chunk)} de {len(text)}]\n{chunk}")

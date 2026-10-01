@@ -31,8 +31,12 @@ State = str  # idle | working | blocked
 class HerdrReporter:
     """Publica el estado del pane en Herdr. Sin Herdr (o fuera de un pane) no hace nada."""
 
-    def __init__(self, binary: str | None = None, env: dict[str, str] | None = None,
-                 runner: Callable[[list[str]], Any] | None = None) -> None:
+    def __init__(
+        self,
+        binary: str | None = None,
+        env: dict[str, str] | None = None,
+        runner: Callable[[list[str]], Any] | None = None,
+    ) -> None:
         env = env if env is not None else dict(os.environ)
         self.binary = binary or shutil.which("herdr") or "herdr"
         self.pane = env.get("HERDR_PANE_ID")
@@ -44,30 +48,59 @@ class HerdrReporter:
     async def _run(self, args: list[str]) -> None:
         try:
             proc = await asyncio.create_subprocess_exec(
-                *args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                *args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
             await asyncio.wait_for(proc.wait(), 5)
         except (OSError, TimeoutError):
-            pass   # Herdr no disponible: la consola sigue funcionando igual
+            pass  # Herdr no disponible: la consola sigue funcionando igual
 
     async def state(self, state: State, message: str) -> None:
         if not self.enabled or self._last == (state, message):
             return
         self._last = (state, message)
         self._seq += 1
-        await self._runner([self.binary, "pane", "report-agent", self.pane, "--source", "argos",
-                            "--agent", "argos", "--state", state, "--message", message,
-                            "--seq", str(self._seq)])
+        await self._runner(
+            [
+                self.binary,
+                "pane",
+                "report-agent",
+                self.pane,
+                "--source",
+                "argos",
+                "--agent",
+                "argos",
+                "--state",
+                state,
+                "--message",
+                message,
+                "--seq",
+                str(self._seq),
+            ]
+        )
 
     async def notify(self, title: str, body: str) -> None:
         if self.enabled:
-            await self._runner([self.binary, "notification", "show", title, "--body", body,
-                                "--sound", "request"])
+            await self._runner(
+                [self.binary, "notification", "show", title, "--body", body, "--sound", "request"]
+            )
 
     async def release(self) -> None:
         if self.enabled:
             self._seq += 1
-            await self._runner([self.binary, "pane", "release-agent", self.pane, "--source",
-                                "argos", "--agent", "argos", "--seq", str(self._seq)])
+            await self._runner(
+                [
+                    self.binary,
+                    "pane",
+                    "release-agent",
+                    self.pane,
+                    "--source",
+                    "argos",
+                    "--agent",
+                    "argos",
+                    "--seq",
+                    str(self._seq),
+                ]
+            )
 
 
 def describe(ev: dict[str, Any]) -> str | None:
@@ -93,9 +126,13 @@ def describe(ev: dict[str, Any]) -> str | None:
     return None
 
 
-async def run_console(client: CoreClient, reporter: HerdrReporter, console: Console,
-                      ask: Callable[[str, float], Any] | None = None,
-                      poll_s: float = 2.0) -> None:
+async def run_console(
+    client: CoreClient,
+    reporter: HerdrReporter,
+    console: Console,
+    ask: Callable[[str, float], Any] | None = None,
+    poll_s: float = 2.0,
+) -> None:
     """Bucle de la consola. `ask(prompt, timeout)` devuelve la respuesta o None (tests)."""
     approvals: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     seen: set[str] = set()
@@ -119,8 +156,9 @@ async def run_console(client: CoreClient, reporter: HerdrReporter, console: Cons
                     # Inmediato, sin esperar al sondeo: Herdr debe marcar el pane en cuanto
                     # alguien tenga que decidir.
                     await reporter.state("blocked", f"aprobación: {ev['action']}")
-                    await reporter.notify("Argos: aprobación pendiente",
-                                          f"{ev['action']} ({ev['risk_class']})")
+                    await reporter.notify(
+                        "Argos: aprobación pendiente", f"{ev['action']} ({ev['risk_class']})"
+                    )
                 continue
             if line := describe(ev):
                 console.print(line, highlight=False)
@@ -142,17 +180,19 @@ async def run_console(client: CoreClient, reporter: HerdrReporter, console: Cons
     async def answer() -> None:
         while True:
             req = await approvals.get()
-            console.print(f"\n[bold yellow]APROBACIÓN {req['id']}[/] {escape(req['action'])} "
-                          f"(riesgo {req['risk_class']}, sesión {req['session_id'][:8]})")
+            console.print(
+                f"\n[bold yellow]APROBACIÓN {req['id']}[/] {escape(req['action'])} "
+                f"(riesgo {req['risk_class']}, sesión {req['session_id'][:8]})"
+            )
             console.print(req["details"], markup=False, highlight=False)
             reply = await ask("¿Aprobar? [s/N] ", req["timeout_s"])
             if reply is None:
                 console.print("  sin respuesta: se aplicará el timeout (denegada)")
                 continue
-            decision = "approved" if reply.strip().lower() in ("s", "si", "sí", "y") \
-                else "denied"
-            ok = await client.decide(req["id"], decision, os.environ.get("USER", "console"),
-                                     "console")
+            decision = "approved" if reply.strip().lower() in ("s", "si", "sí", "y") else "denied"
+            ok = await client.decide(
+                req["id"], decision, os.environ.get("USER", "console"), "console"
+            )
             console.print(f"  {decision}" + ("" if ok else " (ya estaba resuelta)"))
 
     tasks = [asyncio.create_task(t()) for t in (follow, publish_state, answer)]

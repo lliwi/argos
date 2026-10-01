@@ -62,11 +62,13 @@ class McpTool(Tool):
             return ToolResult(f"[dry-run] se invocaría {self.name}({args})")
         try:
             result = await self._session.call_tool(
-                self._remote_name, args, read_timeout_seconds=600)
+                self._remote_name, args, read_timeout_seconds=600
+            )
         except Exception as exc:  # noqa: BLE001
             raise ToolError(f"MCP {self.name}: {exc}", ErrorKind.TOOL_ERROR) from exc
         text = "\n".join(
-            getattr(c, "text", "") for c in (getattr(result, "content", None) or [])).strip()
+            getattr(c, "text", "") for c in (getattr(result, "content", None) or [])
+        ).strip()
         if getattr(result, "is_error", False):
             raise ToolError(text or f"MCP {self.name} devolvió error", ErrorKind.TOOL_ERROR)
         return ToolResult(text)
@@ -89,13 +91,16 @@ class McpConnections:
     async def connect(self, server: McpServerSpec) -> list[McpTool]:
         params = StdioServerParameters(command=server.command, args=server.args, env=server.env)
         ready: asyncio.Future[tuple[ClientSession, Any, Any]] = (
-            asyncio.get_running_loop().create_future())
+            asyncio.get_running_loop().create_future()
+        )
         stop = asyncio.Event()
 
         async def owner() -> None:
             try:
-                async with stdio_client(params) as (read, write), \
-                        ClientSession(read, write) as session:
+                async with (
+                    stdio_client(params) as (read, write),
+                    ClientSession(read, write) as session,
+                ):
                     init = await session.initialize()
                     listed = await session.list_tools()
                     ready.set_result((session, init, listed))
@@ -126,7 +131,7 @@ class McpConnections:
         try:
             await asyncio.shield(waiter)
         except asyncio.CancelledError:
-            await waiter          # los subprocesos se cierran igualmente; luego se propaga
+            await waiter  # los subprocesos se cierran igualmente; luego se propaga
             raise
         finally:
             for t in tasks:
@@ -134,7 +139,7 @@ class McpConnections:
                     t.cancel()
             for t in tasks:
                 if t.done() and not t.cancelled():
-                    t.exception()   # marca la excepción como recuperada (sin avisos al GC)
+                    t.exception()  # marca la excepción como recuperada (sin avisos al GC)
 
 
 def reminders_server(db_path: str) -> McpServerSpec:
@@ -142,13 +147,16 @@ def reminders_server(db_path: str) -> McpServerSpec:
     # que el servidor encuentre `argos` también sin instalación editable (p. ej. en contenedor).
     src_dir = str(Path(__file__).resolve().parents[2])
     return McpServerSpec(
-        name="reminders", command=sys.executable,
+        name="reminders",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.reminders.server"],
-        env={"ARGOS_REMINDERS_DB": db_path, "PYTHONPATH": src_dir})
+        env={"ARGOS_REMINDERS_DB": db_path, "PYTHONPATH": src_dir},
+    )
 
 
-def kali_server(url: str, token: str | None, scope: list[str], authorization_ref: str | None,
-                dry_run: bool) -> McpServerSpec:
+def kali_server(
+    url: str, token: str | None, scope: list[str], authorization_ref: str | None, dry_run: bool
+) -> McpServerSpec:
     """MCP de Kali (UC-2). El alcance y la autorización se inyectan por entorno; el servidor los
     aplica antes de cada acción (RF-SEC-06, RF-LEG-01)."""
     env = {
@@ -160,81 +168,124 @@ def kali_server(url: str, token: str | None, scope: list[str], authorization_ref
     }
     if token:
         env["ARGOS_KALI_TOKEN"] = token
-    return McpServerSpec(name="kali", command=sys.executable,
-                         args=["-m", "argos.mcp_servers.kali.server"], env=env)
+    return McpServerSpec(
+        name="kali", command=sys.executable, args=["-m", "argos.mcp_servers.kali.server"], env=env
+    )
 
 
-def portainer_server(url: str, api_key: str, endpoint: int, dry_run: bool,
-                     verify: bool = True) -> McpServerSpec:
+def portainer_server(
+    url: str, api_key: str, endpoint: int, dry_run: bool, verify: bool = True
+) -> McpServerSpec:
     """MCP de Portainer (UC-3). URL y api key vienen del inventario, nunca del modelo."""
     return McpServerSpec(
-        name="portainer", command=sys.executable,
+        name="portainer",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.portainer.server"],
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-             "ARGOS_PORTAINER_URL": url or "", "ARGOS_PORTAINER_KEY": api_key or "",
-             "ARGOS_PORTAINER_ENDPOINT": str(endpoint), "ARGOS_PORTAINER_VERIFY": "1" if verify
-             else "0", "ARGOS_PORTAINER_DRY_RUN": "1" if dry_run else "0"})
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_PORTAINER_URL": url or "",
+            "ARGOS_PORTAINER_KEY": api_key or "",
+            "ARGOS_PORTAINER_ENDPOINT": str(endpoint),
+            "ARGOS_PORTAINER_VERIFY": "1" if verify else "0",
+            "ARGOS_PORTAINER_DRY_RUN": "1" if dry_run else "0",
+        },
+    )
 
 
-def homeassistant_server(url: str, token: str, dry_run: bool,
-                         verify: bool = True) -> McpServerSpec:
+def homeassistant_server(url: str, token: str, dry_run: bool, verify: bool = True) -> McpServerSpec:
     """MCP de Home Assistant (UC-3). URL y token vienen del inventario, nunca del modelo."""
     return McpServerSpec(
-        name="homeassistant", command=sys.executable,
+        name="homeassistant",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.homeassistant.server"],
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-             "ARGOS_HA_URL": url or "", "ARGOS_HA_TOKEN": token or "",
-             "ARGOS_HA_VERIFY": "1" if verify else "0",
-             "ARGOS_HA_DRY_RUN": "1" if dry_run else "0"})
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_HA_URL": url or "",
+            "ARGOS_HA_TOKEN": token or "",
+            "ARGOS_HA_VERIFY": "1" if verify else "0",
+            "ARGOS_HA_DRY_RUN": "1" if dry_run else "0",
+        },
+    )
 
 
-def media_server(jackett_url: str, jackett_key: str, transmission_url: str,
-                 tr_user: str, tr_pass: str, dry_run: bool) -> McpServerSpec:
+def media_server(
+    jackett_url: str,
+    jackett_key: str,
+    transmission_url: str,
+    tr_user: str,
+    tr_pass: str,
+    dry_run: bool,
+) -> McpServerSpec:
     """MCP de descargas (Jackett + Transmission, UC-3). URLs y api key del inventario."""
     return McpServerSpec(
-        name="media", command=sys.executable,
+        name="media",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.media.server"],
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-             "ARGOS_JACKETT_URL": jackett_url or "", "ARGOS_JACKETT_KEY": jackett_key or "",
-             "ARGOS_TRANSMISSION_URL": transmission_url or "",
-             "ARGOS_TRANSMISSION_USER": tr_user or "", "ARGOS_TRANSMISSION_PASS": tr_pass or "",
-             "ARGOS_MEDIA_DRY_RUN": "1" if dry_run else "0"})
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_JACKETT_URL": jackett_url or "",
+            "ARGOS_JACKETT_KEY": jackett_key or "",
+            "ARGOS_TRANSMISSION_URL": transmission_url or "",
+            "ARGOS_TRANSMISSION_USER": tr_user or "",
+            "ARGOS_TRANSMISSION_PASS": tr_pass or "",
+            "ARGOS_MEDIA_DRY_RUN": "1" if dry_run else "0",
+        },
+    )
 
 
-def nas_server(host: str, user: str, password: str, community: str,
-               dry_run: bool) -> McpServerSpec:
+def nas_server(host: str, user: str, password: str, community: str, dry_run: bool) -> McpServerSpec:
     """MCP del NAS (SMB + SNMP, UC-3). Credenciales del inventario, nunca del modelo."""
     return McpServerSpec(
-        name="nas", command=sys.executable,
+        name="nas",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.nas.server"],
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-             "ARGOS_NAS_HOST": host or "", "ARGOS_NAS_USER": user or "",
-             "ARGOS_NAS_PASSWORD": password or "", "ARGOS_NAS_COMMUNITY": community or "",
-             "ARGOS_NAS_DRY_RUN": "1" if dry_run else "0"})
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_NAS_HOST": host or "",
+            "ARGOS_NAS_USER": user or "",
+            "ARGOS_NAS_PASSWORD": password or "",
+            "ARGOS_NAS_COMMUNITY": community or "",
+            "ARGOS_NAS_DRY_RUN": "1" if dry_run else "0",
+        },
+    )
 
 
 def cloudflare_server(token: str, dry_run: bool) -> McpServerSpec:
     """MCP de Cloudflare (DNS, túneles, analítica; UC-3). Token del inventario, nunca del modelo."""
     return McpServerSpec(
-        name="cloudflare", command=sys.executable,
+        name="cloudflare",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.cloudflare.server"],
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-             "ARGOS_CF_TOKEN": token or "", "ARGOS_CF_DRY_RUN": "1" if dry_run else "0"})
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_CF_TOKEN": token or "",
+            "ARGOS_CF_DRY_RUN": "1" if dry_run else "0",
+        },
+    )
 
 
 def weather_server(city: str = "") -> McpServerSpec:
     """MCP de meteorología (eltiempo.es, UC-4). Solo lectura, sin credenciales."""
     return McpServerSpec(
-        name="weather", command=sys.executable,
+        name="weather",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.weather.server"],
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-             "ARGOS_WEATHER_CITY": city or ""})
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_WEATHER_CITY": city or "",
+        },
+    )
 
 
 def notion_server(token: str, dry_run: bool) -> McpServerSpec:
     """MCP de Notion (UC-4). Token del inventario, nunca del modelo."""
     return McpServerSpec(
-        name="notion", command=sys.executable,
+        name="notion",
+        command=sys.executable,
         args=["-m", "argos.mcp_servers.notion.server"],
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-             "ARGOS_NOTION_TOKEN": token or "", "ARGOS_NOTION_DRY_RUN": "1" if dry_run else "0"})
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "ARGOS_NOTION_TOKEN": token or "",
+            "ARGOS_NOTION_DRY_RUN": "1" if dry_run else "0",
+        },
+    )

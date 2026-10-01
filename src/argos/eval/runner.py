@@ -33,7 +33,7 @@ from argos.model.fake import FakeProvider
 @dataclass
 class TaskOutcome:
     task_id: str
-    status: str                       # passed | failed | skipped | error
+    status: str  # passed | failed | skipped | error
     score: float = 0.0
     session_id: str | None = None
     checks: list[dict[str, Any]] = field(default_factory=list)
@@ -66,8 +66,15 @@ def sandbox_ready(cfg: Config) -> str | None:
     return docker_ready(cfg.sandbox.image)
 
 
-async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provider_name: str,
-                   make_provider, suite: str, baseline_ref: str | None) -> TaskOutcome:
+async def run_task(
+    task: dict[str, Any],
+    cfg: Config,
+    store: AuditStore,
+    provider_name: str,
+    make_provider,
+    suite: str,
+    baseline_ref: str | None,
+) -> TaskOutcome:
     tid = task["id"]
     if "docker" in task.get("requires", []) and (why := sandbox_ready(cfg)):
         return TaskOutcome(tid, "skipped", reason=why)
@@ -82,13 +89,19 @@ async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provide
 
     state_dir = cfg.data_path / "eval-state" / uuid.uuid4().hex[:12]
     opts = SessionOptions(
-        task=task["prompt"], profile=task.get("profile", "personal"), channel="eval",
-        dry_run=task.get("dry_run"), allow_domains=task.get("allow_domains", []),
+        task=task["prompt"],
+        profile=task.get("profile", "personal"),
+        channel="eval",
+        dry_run=task.get("dry_run"),
+        allow_domains=task.get("allow_domains", []),
         session_budget_tokens=task.get("session_budget_tokens"),
-        input_files=task.get("input_files", {}), state_dir=state_dir)
+        input_files=task.get("input_files", {}),
+        state_dir=state_dir,
+    )
     try:
-        result = await run_session(opts, cfg, provider, store=store,
-                                   approver=ScriptedApprover(task.get("approvals", [])))
+        result = await run_session(
+            opts, cfg, provider, store=store, approver=ScriptedApprover(task.get("approvals", []))
+        )
     except Exception as exc:  # noqa: BLE001 — una tarea rota no detiene la suite
         return TaskOutcome(tid, "error", reason=f"{type(exc).__name__}: {exc}")
     finally:
@@ -100,22 +113,45 @@ async def run_task(task: dict[str, Any], cfg: Config, store: AuditStore, provide
         if spec["type"] == "live":
             # Verdad en vivo: se consulta el servicio real y se compara con la respuesta.
             ok, detail = await live_check(spec, result.message or "", cfg)
-            checks.append(CheckResult("live", ok, f"{spec['probe']}: {detail}",
-                                      spec.get("required", True)))
+            checks.append(
+                CheckResult("live", ok, f"{spec['probe']}: {detail}", spec.get("required", True))
+            )
         else:
             checks.append(run_check(spec, result, events))
     scored = [c for c in checks if c.required] or checks
     score = sum(c.passed for c in scored) / len(scored) if scored else 0.0
     passed = all(c.passed for c in checks if c.required)
     s = summarize(store, result.session_id)
-    metrics = {"steps": s.steps, "tokens": s.tokens, "cost": round(s.cost, 6),
-               "tool_calls": s.tool_calls, "tool_errors": s.tool_errors,
-               "latency_ms": s.latency_ms, "duration_s": round(s.duration_s, 2)}
-    store.emit(EvalRun(session_id=result.session_id, trace_id=result.session_id, suite=suite,
-                       task_id=tid, score=score, passed=passed, baseline_ref=baseline_ref,
-                       checks=[c.as_dict() for c in checks], metrics=metrics))
-    return TaskOutcome(tid, "passed" if passed else "failed", score, result.session_id,
-                       [c.as_dict() for c in checks], metrics)
+    metrics = {
+        "steps": s.steps,
+        "tokens": s.tokens,
+        "cost": round(s.cost, 6),
+        "tool_calls": s.tool_calls,
+        "tool_errors": s.tool_errors,
+        "latency_ms": s.latency_ms,
+        "duration_s": round(s.duration_s, 2),
+    }
+    store.emit(
+        EvalRun(
+            session_id=result.session_id,
+            trace_id=result.session_id,
+            suite=suite,
+            task_id=tid,
+            score=score,
+            passed=passed,
+            baseline_ref=baseline_ref,
+            checks=[c.as_dict() for c in checks],
+            metrics=metrics,
+        )
+    )
+    return TaskOutcome(
+        tid,
+        "passed" if passed else "failed",
+        score,
+        result.session_id,
+        [c.as_dict() for c in checks],
+        metrics,
+    )
 
 
 def tree_events(store: AuditStore, session_id: str) -> list:
@@ -148,27 +184,40 @@ def per_task(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
-async def run_suite(cfg: Config, store: AuditStore, suite: str, provider_name: str,
-                    make_provider, only: list[str] | None = None,
-                    baseline_ref: str | None = None, repeat: int = 1,
-                    overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+async def run_suite(
+    cfg: Config,
+    store: AuditStore,
+    suite: str,
+    provider_name: str,
+    make_provider,
+    only: list[str] | None = None,
+    baseline_ref: str | None = None,
+    repeat: int = 1,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tasks = [t for t in load_suite(cfg.root, suite) if not only or t["id"] in only]
     outcomes: list[TaskOutcome] = []
     for run in range(max(1, repeat)):
         for t in tasks:
-            outcome = await run_task(t, cfg, store, provider_name, make_provider, suite,
-                                     baseline_ref)
+            outcome = await run_task(
+                t, cfg, store, provider_name, make_provider, suite, baseline_ref
+            )
             outcome.metrics.setdefault("run", run + 1)
             outcomes.append(outcome)
     ran = [o for o in outcomes if o.status in ("passed", "failed")]
     summary = {
         "run_id": datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6],
-        "suite": suite, "provider": provider_name, "config_hash": cfg.config_hash(),
-        "overrides": overrides or {}, "repeat": max(1, repeat),
+        "suite": suite,
+        "provider": provider_name,
+        "config_hash": cfg.config_hash(),
+        "overrides": overrides or {},
+        "repeat": max(1, repeat),
         "aggregate": {
-            "tasks": len(tasks), "ran": len(ran),
+            "tasks": len(tasks),
+            "ran": len(ran),
             "success_rate": round(sum(o.status == "passed" for o in ran) / len(ran), 3)
-            if ran else 0.0,
+            if ran
+            else 0.0,
             "mean_score": round(sum(o.score for o in ran) / len(ran), 3) if ran else 0.0,
             "mean_tokens": round(sum(o.metrics["tokens"] for o in ran) / len(ran)) if ran else 0,
             "mean_steps": round(sum(o.metrics["steps"] for o in ran) / len(ran), 2) if ran else 0,
@@ -183,8 +232,9 @@ async def run_suite(cfg: Config, store: AuditStore, suite: str, provider_name: s
     return summary
 
 
-def compare_to_baseline(current: dict[str, Any], baseline: dict[str, Any],
-                        token_tolerance: float = 0.2) -> list[str]:
+def compare_to_baseline(
+    current: dict[str, Any], baseline: dict[str, Any], token_tolerance: float = 0.2
+) -> list[str]:
     """Puerta de regresión (RF-EV-05): lista de regresiones; vacía => se puede promover."""
     regressions = []
     cur, base = per_task(current), per_task(baseline)
@@ -193,8 +243,10 @@ def compare_to_baseline(current: dict[str, Any], baseline: dict[str, Any],
         if not b:
             continue
         if c["pass_rate"] < b["pass_rate"]:
-            regressions.append(f"{tid}: tasa de éxito {b['pass_rate']:.0%} → {c['pass_rate']:.0%}"
-                               + (" (pasaba y ahora falla)" if b["pass_rate"] == 1 else ""))
+            regressions.append(
+                f"{tid}: tasa de éxito {b['pass_rate']:.0%} → {c['pass_rate']:.0%}"
+                + (" (pasaba y ahora falla)" if b["pass_rate"] == 1 else "")
+            )
         elif c["mean_score"] < b["mean_score"]:
             regressions.append(f"{tid}: score {b['mean_score']:.2f} → {c['mean_score']:.2f}")
         bt, ct = b["mean_tokens"], c["mean_tokens"]
@@ -225,22 +277,29 @@ def latest_run(cfg: Config, suite: str, provider: str) -> dict[str, Any] | None:
     return None
 
 
-def eval_report(summary: dict[str, Any], previous: dict[str, Any] | None,
-                regressions: list[str]) -> str:
+def eval_report(
+    summary: dict[str, Any], previous: dict[str, Any] | None, regressions: list[str]
+) -> str:
     """Informe breve (para el móvil): aciertos, coste, fallos con su motivo y cambios."""
     agg = summary["aggregate"]
-    lines = [f"{'⚠️' if regressions else '✅'} {agg['ran']} tareas · éxito "
-             f"{agg['success_rate']:.0%} · score {agg['mean_score']:.2f} · "
-             f"{agg['mean_tokens']:,} tokens de media".replace(",", ".")]
+    lines = [
+        f"{'⚠️' if regressions else '✅'} {agg['ran']} tareas · éxito "
+        f"{agg['success_rate']:.0%} · score {agg['mean_score']:.2f} · "
+        f"{agg['mean_tokens']:,} tokens de media".replace(",", ".")
+    ]
     if previous:
         pa = previous["aggregate"]
-        lines.append(f"antes: éxito {pa['success_rate']:.0%} · {pa['mean_tokens']:,} tokens"
-                     .replace(",", "."))
+        lines.append(
+            f"antes: éxito {pa['success_rate']:.0%} · {pa['mean_tokens']:,} tokens".replace(
+                ",", "."
+            )
+        )
     for t in summary["tasks"]:
         if t["status"] == "passed":
             continue
         why = t.get("reason") or "; ".join(
-            c["detail"][:140] for c in t.get("checks", []) if c["required"] and not c["passed"])
+            c["detail"][:140] for c in t.get("checks", []) if c["required"] and not c["passed"]
+        )
         icon = {"failed": "❌", "error": "💥", "skipped": "⏭"}.get(t["status"], "?")
         lines.append(f"{icon} {t['task_id']}: {why}")
     if regressions:

@@ -53,16 +53,25 @@ def render_event(ev: Event, store: AuditStore, full: bool = False) -> list[str]:
         case Turn():
             d = ev.decision
             if ev.purpose == "internal":
-                return [f"{t}   [dim]interno ({ev.route}, {ev.model}): {d.get('type')} de "
-                        f"{d.get('tool')} ({ev.prompt_tokens}+{ev.completion_tokens} tok)[/]"]
-            what = (f"→ {d.get('tool')} {json.dumps(d.get('args', {}), ensure_ascii=False)}"
-                    if d.get("type") == "tool_call" else f"→ FINAL: {d.get('message')}")
-            return [f"{t} [cyan]turno {ev.seq}[/] {escape(f'[{ev.route or chr(45)}·{ev.model}]')} "
-                    f"({ev.prompt_tokens}+{ev.completion_tokens} tok, {ev.latency_ms} ms) "
-                    f"{_clip(what, 400)}"]
+                return [
+                    f"{t}   [dim]interno ({ev.route}, {ev.model}): {d.get('type')} de "
+                    f"{d.get('tool')} ({ev.prompt_tokens}+{ev.completion_tokens} tok)[/]"
+                ]
+            what = (
+                f"→ {d.get('tool')} {json.dumps(d.get('args', {}), ensure_ascii=False)}"
+                if d.get("type") == "tool_call"
+                else f"→ FINAL: {d.get('message')}"
+            )
+            return [
+                f"{t} [cyan]turno {ev.seq}[/] {escape(f'[{ev.route or chr(45)}·{ev.model}]')} "
+                f"({ev.prompt_tokens}+{ev.completion_tokens} tok, {ev.latency_ms} ms) "
+                f"{_clip(what, 400)}"
+            ]
         case ShellExec():
-            lines = [f"{t}   [magenta]$ {ev.command}[/] → exit={ev.exit_code}"
-                     f" ({ev.duration_ms} ms){' [dry-run]' if ev.dry_run else ''}"]
+            lines = [
+                f"{t}   [magenta]$ {ev.command}[/] → exit={ev.exit_code}"
+                f" ({ev.duration_ms} ms){' [dry-run]' if ev.dry_run else ''}"
+            ]
             if full:
                 for label, ref in (("stdout", ev.stdout_ref), ("stderr", ev.stderr_ref)):
                     if ref:
@@ -70,31 +79,43 @@ def render_event(ev: Event, store: AuditStore, full: bool = False) -> list[str]:
             return lines
         case ToolCall():
             color = {"ok": "green", "error": "red", "denied": "yellow"}.get(ev.status, "white")
-            return [f"{t}   [{color}]{ev.tool} {ev.status}[/] risk={ev.risk_class.value}"
-                    f" idem={ev.idempotent} intento={ev.attempt} ({ev.duration_ms} ms)"
-                    + (f" kind={ev.error_kind.value}" if ev.error_kind else "")
-                    + f"\n     ↳ {_clip(ev.result_preview, 300 if not full else 3000)}"]
+            return [
+                f"{t}   [{color}]{ev.tool} {ev.status}[/] risk={ev.risk_class.value}"
+                f" idem={ev.idempotent} intento={ev.attempt} ({ev.duration_ms} ms)"
+                + (f" kind={ev.error_kind.value}" if ev.error_kind else "")
+                + f"\n     ↳ {_clip(ev.result_preview, 300 if not full else 3000)}"
+            ]
         case FileEvent():
             return [f"{t}   file {ev.op} {ev.path} ({ev.bytes} B)"]
         case PackageInstall():
-            return [f"{t}   [blue]install {ev.manager}:{ev.package}"
-                    f"{'==' + ev.version if ev.version else ''} {ev.status}[/]"]
+            return [
+                f"{t}   [blue]install {ev.manager}:{ev.package}"
+                f"{'==' + ev.version if ev.version else ''} {ev.status}[/]"
+            ]
         case ErrorEvent():
             return [f"{t}   [red]ERROR {ev.kind.value}[/]: {_clip(ev.message, 300)}"]
         case MemoryEvent():
-            what = {"save": "guardada", "update": "corregida", "search": "búsqueda",
-                    "inject": "inyectada"}[ev.op]
+            what = {
+                "save": "guardada",
+                "update": "corregida",
+                "search": "búsqueda",
+                "inject": "inyectada",
+            }[ev.op]
             ids = ", ".join(ev.memory_ids) or "sin resultados"
             detail = f": {_clip(ev.detail, 120)}" if ev.detail else ""
             return [f"{t}   [blue]memoria {what}[/] ({ids}){detail}"]
         case SkillActivation():
             return [f"{t}   [blue]skill {ev.skill} {ev.version} activada[/]"]
         case Approval():
-            return [f"{t}   [yellow]APROBACIÓN {ev.action} ({ev.risk_class.value}): "
-                    f"{ev.decision}[/] por {ev.approver} vía {ev.channel}"]
+            return [
+                f"{t}   [yellow]APROBACIÓN {ev.action} ({ev.risk_class.value}): "
+                f"{ev.decision}[/] por {ev.approver} vía {ev.channel}"
+            ]
         case BudgetEvent():
-            return [f"{t}   [yellow]PRESUPUESTO {ev.scope}: {ev.action}[/]"
-                    f" {int(ev.spent)}/{int(ev.limit)} {ev.unit}"]
+            return [
+                f"{t}   [yellow]PRESUPUESTO {ev.scope}: {ev.action}[/]"
+                f" {int(ev.spent)}/{int(ev.limit)} {ev.unit}"
+            ]
         case EvalRun():
             return [f"{t}   EVAL {ev.suite}/{ev.task_id}: score={ev.score:.2f} passed={ev.passed}"]
         case SessionEnded():
@@ -149,25 +170,40 @@ def summarize(store: AuditStore, session_id: str, include_children: bool = True)
         match ev:
             case SessionStarted():
                 s.profile, s.model = ev.agent_profile, ev.model
-                s.versions = {"model": ev.model, "prompt_version": ev.prompt_version,
-                              "config_hash": ev.config_hash, "harness_commit": ev.harness_commit,
-                              "tools": ev.tools_versions, "skills": ev.skills_versions}
+                s.versions = {
+                    "model": ev.model,
+                    "prompt_version": ev.prompt_version,
+                    "config_hash": ev.config_hash,
+                    "harness_commit": ev.harness_commit,
+                    "tools": ev.tools_versions,
+                    "skills": ev.skills_versions,
+                }
             case Turn():
-                s.steps += ev.purpose == "decide"   # los turnos internos no son pasos
+                s.steps += ev.purpose == "decide"  # los turnos internos no son pasos
                 s.prompt_tokens += ev.prompt_tokens
                 s.completion_tokens += ev.completion_tokens
                 s.cached_tokens += ev.cached_tokens
                 s.cost += ev.cost
                 s.latency_ms += ev.latency_ms
                 s.max_context_chars = max(s.max_context_chars, ev.context_chars)
-                s.per_turn.append({"seq": ev.seq, "route": ev.route, "purpose": ev.purpose,
-                                   "model": ev.model, "prompt": ev.prompt_tokens,
-                                   "completion": ev.completion_tokens, "cached": ev.cached_tokens,
-                                   "cost": ev.cost, "context_chars": ev.context_chars})
+                s.per_turn.append(
+                    {
+                        "seq": ev.seq,
+                        "route": ev.route,
+                        "purpose": ev.purpose,
+                        "model": ev.model,
+                        "prompt": ev.prompt_tokens,
+                        "completion": ev.completion_tokens,
+                        "cached": ev.cached_tokens,
+                        "cost": ev.cost,
+                        "context_chars": ev.context_chars,
+                    }
+                )
                 d = ev.decision
                 if ev.purpose == "decide":
-                    s.actions.append(f"{d.get('tool')}" if d.get("type") == "tool_call"
-                                     else "final")
+                    s.actions.append(
+                        f"{d.get('tool')}" if d.get("type") == "tool_call" else "final"
+                    )
             case ToolCall():
                 s.tool_calls += 1
                 s.tool_errors += ev.status == "error"
@@ -190,22 +226,38 @@ def summarize(store: AuditStore, session_id: str, include_children: bool = True)
 
 def diff_sessions(store: AuditStore, a: str, b: str) -> dict[str, Any]:
     sa, sb = summarize(store, a), summarize(store, b)
-    versions = {k: (sa.versions.get(k), sb.versions.get(k))
-                for k in sorted(set(sa.versions) | set(sb.versions))
-                if sa.versions.get(k) != sb.versions.get(k)}
-    metrics = {k: (getattr(sa, k), getattr(sb, k)) for k in (
-        "status", "steps", "tokens", "cost", "tool_calls", "tool_errors", "shell_execs",
-        "latency_ms", "max_context_chars")}
+    versions = {
+        k: (sa.versions.get(k), sb.versions.get(k))
+        for k in sorted(set(sa.versions) | set(sb.versions))
+        if sa.versions.get(k) != sb.versions.get(k)
+    }
+    metrics = {
+        k: (getattr(sa, k), getattr(sb, k))
+        for k in (
+            "status",
+            "steps",
+            "tokens",
+            "cost",
+            "tool_calls",
+            "tool_errors",
+            "shell_execs",
+            "latency_ms",
+            "max_context_chars",
+        )
+    }
     actions = list(difflib.unified_diff(sa.actions, sb.actions, a[:8], b[:8], lineterm="", n=1))
-    errors = {k: (sa.errors.get(k, 0), sb.errors.get(k, 0))
-              for k in sorted(set(sa.errors) | set(sb.errors))}
+    errors = {
+        k: (sa.errors.get(k, 0), sb.errors.get(k, 0))
+        for k in sorted(set(sa.errors) | set(sb.errors))
+    }
     return {"versions": versions, "metrics": metrics, "errors": errors, "actions": actions}
 
 
 def aggregate_metrics(store: AuditStore) -> dict[str, Any]:
     """Métricas agregadas (RF-OB-06) sobre toda la auditoría."""
     by_profile: dict[str, dict[str, float]] = defaultdict(
-        lambda: {"sessions": 0, "completed": 0, "tokens": 0, "cost": 0.0, "duration_s": 0.0})
+        lambda: {"sessions": 0, "completed": 0, "tokens": 0, "cost": 0.0, "duration_s": 0.0}
+    )
     for row in store.sessions(limit=100_000):
         s = summarize(store, row["id"], include_children=False)
         p = by_profile[row["profile"]]
@@ -215,7 +267,8 @@ def aggregate_metrics(store: AuditStore) -> dict[str, Any]:
         p["cost"] += s.cost
         p["duration_s"] += s.duration_s
     tools: dict[str, dict[str, float]] = defaultdict(
-        lambda: {"calls": 0, "errors": 0, "retries": 0, "duration_ms": 0})
+        lambda: {"calls": 0, "errors": 0, "retries": 0, "duration_ms": 0}
+    )
     for ev in store.iter_all(["tool_call"]):
         assert isinstance(ev, ToolCall)
         t = tools[ev.tool]
@@ -223,6 +276,7 @@ def aggregate_metrics(store: AuditStore) -> dict[str, Any]:
         t["errors"] += ev.status == "error"
         t["retries"] += max(0, ev.attempt - 1)
         t["duration_ms"] += ev.duration_ms
-    errors = Counter(ev.kind.value for ev in store.iter_all(["error_event"])
-                     if isinstance(ev, ErrorEvent))
+    errors = Counter(
+        ev.kind.value for ev in store.iter_all(["error_event"]) if isinstance(ev, ErrorEvent)
+    )
     return {"profiles": dict(by_profile), "tools": dict(tools), "errors": dict(errors)}

@@ -16,9 +16,13 @@ def test_unc_builds_and_rejects_traversal():
 
 
 def _env(monkeypatch, dry="0"):
-    for k, v in {"ARGOS_NAS_HOST": "nas.home", "ARGOS_NAS_USER": "argos",
-                 "ARGOS_NAS_PASSWORD": "pw", "ARGOS_NAS_COMMUNITY": "public",
-                 "ARGOS_NAS_DRY_RUN": dry}.items():
+    for k, v in {
+        "ARGOS_NAS_HOST": "nas.home",
+        "ARGOS_NAS_USER": "argos",
+        "ARGOS_NAS_PASSWORD": "pw",
+        "ARGOS_NAS_COMMUNITY": "public",
+        "ARGOS_NAS_DRY_RUN": dry,
+    }.items():
         monkeypatch.setenv(k, v)
 
 
@@ -49,8 +53,10 @@ async def test_nas_list_uses_smb(monkeypatch):
     class FakeSmb:
         def list_dir(self, path):
             assert path == "Public"
-            return [{"name": "pelis", "dir": True, "size": 0, "mtime": 0},
-                    {"name": "leeme.txt", "dir": False, "size": 2048, "mtime": 0}]
+            return [
+                {"name": "pelis", "dir": True, "size": 0, "mtime": 0},
+                {"name": "leeme.txt", "dir": False, "size": 2048, "mtime": 0},
+            ]
 
     monkeypatch.setattr(n, "_smb", lambda: FakeSmb())
     out = await n.list("Public")
@@ -63,14 +69,24 @@ async def test_nas_storage_filters_filesystems(monkeypatch):
     _env(monkeypatch, dry="0")
 
     async def fake_storage(host, community):
-        return [{"name": "Physical memory", "total": 2_000_000_000, "used": 1_900_000_000,
-                 "percent": 95},
-                {"name": "/Volume1", "total": 2_000_000_000_000, "used": 1_500_000_000_000,
-                 "percent": 75}]
+        return [
+            {
+                "name": "Physical memory",
+                "total": 2_000_000_000,
+                "used": 1_900_000_000,
+                "percent": 95,
+            },
+            {
+                "name": "/Volume1",
+                "total": 2_000_000_000_000,
+                "used": 1_500_000_000_000,
+                "percent": 75,
+            },
+        ]
 
     monkeypatch.setattr(n, "snmp_storage", fake_storage)
     out = await n.storage()
-    assert "/Volume1" in out and "Physical memory" not in out    # memoria/swap fuera
+    assert "/Volume1" in out and "Physical memory" not in out  # memoria/swap fuera
 
 
 async def test_nas_in_infra_catalog(root, store, fake_sandbox):

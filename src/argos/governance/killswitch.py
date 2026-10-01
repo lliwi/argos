@@ -20,8 +20,9 @@ class KillSwitch:
         self.file = store.root / "KILL"
 
     def engage(self, reason: str = "manual") -> None:
-        self.store.set_control(KEY, json.dumps(
-            {"active": True, "reason": reason, "ts": datetime.now(UTC).isoformat()}))
+        self.store.set_control(
+            KEY, json.dumps({"active": True, "reason": reason, "ts": datetime.now(UTC).isoformat()})
+        )
         self.file.write_text(reason + "\n")
 
     def rearm(self) -> None:

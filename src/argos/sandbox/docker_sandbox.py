@@ -56,19 +56,29 @@ class Sandbox(Protocol):
 async def _run(*args: str, limit_s: float = 60, stdin: bytes | None = None) -> ExecResult:
     start = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
-        *args, stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        *args,
+        stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
     try:
         out, err = await asyncio.wait_for(proc.communicate(stdin), timeout=limit_s)
     except TimeoutError:
         proc.kill()
         out, err = await proc.communicate()
-        return ExecResult(None, out.decode(errors="replace")[:MAX_CAPTURE],
-                          err.decode(errors="replace")[:MAX_CAPTURE],
-                          int((time.monotonic() - start) * 1000), timed_out=True)
-    return ExecResult(proc.returncode, out.decode(errors="replace")[:MAX_CAPTURE],
-                      err.decode(errors="replace")[:MAX_CAPTURE],
-                      int((time.monotonic() - start) * 1000))
+        return ExecResult(
+            None,
+            out.decode(errors="replace")[:MAX_CAPTURE],
+            err.decode(errors="replace")[:MAX_CAPTURE],
+            int((time.monotonic() - start) * 1000),
+            timed_out=True,
+        )
+    return ExecResult(
+        proc.returncode,
+        out.decode(errors="replace")[:MAX_CAPTURE],
+        err.decode(errors="replace")[:MAX_CAPTURE],
+        int((time.monotonic() - start) * 1000),
+    )
 
 
 class EgressPolicy:
@@ -128,22 +138,50 @@ class DockerSandbox:
         (self.workspace / "out").mkdir(parents=True, exist_ok=True)
         proxy = self.proxy_url
         env = {
-            "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy, "http_proxy": proxy, "https_proxy": proxy,
-            "NO_PROXY": "localhost,127.0.0.1", **self.env,
+            "HTTP_PROXY": proxy,
+            "HTTPS_PROXY": proxy,
+            "http_proxy": proxy,
+            "https_proxy": proxy,
+            "NO_PROXY": "localhost,127.0.0.1",
+            **self.env,
         }
         args = [
-            "docker", "run", "-d", "--name", self.id, "--hostname", "sandbox",
-            "--label", "argos.sandbox=1", "--label", f"argos.session={self.session_id}",
-            "--label", f"argos.segment={self.segment}",
-            "--network", self.network,
-            "--cpus", self.cfg.cpus, "--memory", self.cfg.memory,
-            "--pids-limit", str(self.cfg.pids),
-            "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-            "--read-only", "--tmpfs", "/tmp:rw,size=512m",
-            "-v", f"{self.volume}:/home/agent",
-            "-v", f"{(self.workspace / 'in').resolve()}:/workspace/in:ro",
-            "-v", f"{(self.workspace / 'out').resolve()}:/workspace/out:rw",
-            "-w", "/workspace/out",
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            self.id,
+            "--hostname",
+            "sandbox",
+            "--label",
+            "argos.sandbox=1",
+            "--label",
+            f"argos.session={self.session_id}",
+            "--label",
+            f"argos.segment={self.segment}",
+            "--network",
+            self.network,
+            "--cpus",
+            self.cfg.cpus,
+            "--memory",
+            self.cfg.memory,
+            "--pids-limit",
+            str(self.cfg.pids),
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--read-only",
+            "--tmpfs",
+            "/tmp:rw,size=512m",
+            "-v",
+            f"{self.volume}:/home/agent",
+            "-v",
+            f"{(self.workspace / 'in').resolve()}:/workspace/in:ro",
+            "-v",
+            f"{(self.workspace / 'out').resolve()}:/workspace/out:rw",
+            "-w",
+            "/workspace/out",
         ]
         for key in env:
             # Solo el nombre: el valor viaja por el entorno del proceso docker, nunca por argv
@@ -152,7 +190,8 @@ class DockerSandbox:
         args += [self.cfg.image, "sleep", "infinity"]
         proc_env = {**os.environ, **env}
         proc = await asyncio.create_subprocess_exec(
-            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=proc_env)
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=proc_env
+        )
         out, err = await proc.communicate()
         if proc.returncode != 0:
             raise SandboxError(f"docker run falló: {err.decode(errors='replace').strip()[:500]}")
@@ -168,9 +207,22 @@ class DockerSandbox:
         await self.start()
         timeout = timeout_s or self.cfg.command_timeout_s
         # `timeout` dentro del contenedor mata el proceso aunque el cliente docker muera.
-        res = await _run("docker", "exec", "-i", "-w", "/workspace/out", self.id,
-                         "timeout", "-k", "5", str(timeout), "bash", "-c", command,
-                         limit_s=timeout + 15)
+        res = await _run(
+            "docker",
+            "exec",
+            "-i",
+            "-w",
+            "/workspace/out",
+            self.id,
+            "timeout",
+            "-k",
+            "5",
+            str(timeout),
+            "bash",
+            "-c",
+            command,
+            limit_s=timeout + 15,
+        )
         if res.exit_code == 124:
             res.timed_out = True
         return res
@@ -188,8 +240,15 @@ class DockerSandbox:
                 except json.JSONDecodeError:
                     continue
                 if ev.get("client_ip") == self.ip and ev.get("decision") == "blocked":
-                    out.append(EgressDecision(ev["host"], int(ev.get("port", 0)), "blocked",
-                                              ev.get("reason", ""), ev.get("ts", "")))
+                    out.append(
+                        EgressDecision(
+                            ev["host"],
+                            int(ev.get("port", 0)),
+                            "blocked",
+                            ev.get("reason", ""),
+                            ev.get("ts", ""),
+                        )
+                    )
             self._egress_offset = fh.tell()
         return out
 

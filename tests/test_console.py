@@ -25,8 +25,9 @@ async def test_console_approves_and_reports_to_herdr(cfg, store, fake_sandbox):
     async def runner(args):
         calls.append(args)
 
-    reporter = HerdrReporter(binary="herdr", env={"HERDR_ENV": "1", "HERDR_PANE_ID": "w1:p2"},
-                             runner=runner)
+    reporter = HerdrReporter(
+        binary="herdr", env={"HERDR_ENV": "1", "HERDR_PANE_ID": "w1:p2"}, runner=runner
+    )
     asked: list[str] = []
 
     async def ask(prompt, limit_s):
@@ -36,8 +37,7 @@ async def test_console_approves_and_reports_to_herdr(cfg, store, fake_sandbox):
     out = Console(file=io.StringIO(), width=200)
     script = [call("shell.exec", command="rm -rf /home/agent/cache"), final("limpio")]
     async with running_core(cfg, store, [script], fake_sandbox) as (core, client):
-        console_task = asyncio.create_task(
-            run_console(client, reporter, out, ask=ask, poll_s=0.05))
+        console_task = asyncio.create_task(run_console(client, reporter, out, ask=ask, poll_s=0.05))
         await asyncio.sleep(0.2)
         sid = await client.submit(task="limpia la caché", profile="personal")
         events = await asyncio.wait_for(collect(client, sid), 10)

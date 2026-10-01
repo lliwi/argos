@@ -19,12 +19,23 @@ class NotionError(RuntimeError):
 
 
 class NotionClient:
-    def __init__(self, token: str, base_url: str = API, timeout: float = 30,
-                 transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        token: str,
+        base_url: str = API,
+        timeout: float = 30,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._http = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), timeout=timeout, transport=transport,
-            headers={"Authorization": f"Bearer {token}", "Notion-Version": VERSION,
-                     "Content-Type": "application/json"})
+            base_url=base_url.rstrip("/"),
+            timeout=timeout,
+            transport=transport,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Notion-Version": VERSION,
+                "Content-Type": "application/json",
+            },
+        )
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -48,9 +59,11 @@ class NotionClient:
         return body
 
     async def search(self, query: str, kind: str = "", limit: int = 20) -> list[dict]:
-        body: dict[str, Any] = {"query": query, "page_size": min(limit, 100),
-                                "sort": {"direction": "descending",
-                                         "timestamp": "last_edited_time"}}
+        body: dict[str, Any] = {
+            "query": query,
+            "page_size": min(limit, 100),
+            "sort": {"direction": "descending", "timestamp": "last_edited_time"},
+        }
         if kind:
             body["filter"] = {"property": "object", "value": kind}
         return (await self._req("POST", "/search", json=body)).get("results", [])
@@ -75,8 +88,9 @@ class NotionClient:
             cursor = body.get("next_cursor")
         return out[:max_items]
 
-    async def query(self, database_id: str, filter_: dict | None, sorts: list | None,
-                    limit: int) -> list[dict]:
+    async def query(
+        self, database_id: str, filter_: dict | None, sorts: list | None, limit: int
+    ) -> list[dict]:
         out: list[dict] = []
         cursor = None
         while len(out) < limit:
@@ -95,16 +109,20 @@ class NotionClient:
         return out
 
     async def create_page(self, parent: dict, properties: dict, children: list[dict]) -> dict:
-        page = await self._req("POST", "/pages", json={
-            "parent": parent, "properties": properties, "children": children[:100]})
+        page = await self._req(
+            "POST",
+            "/pages",
+            json={"parent": parent, "properties": properties, "children": children[:100]},
+        )
         if len(children) > 100:
             await self.append(page["id"], children[100:])
         return page
 
     async def append(self, block_id: str, children: list[dict]) -> None:
         for i in range(0, len(children), 100):
-            await self._req("PATCH", f"/blocks/{block_id}/children",
-                            json={"children": children[i:i + 100]})
+            await self._req(
+                "PATCH", f"/blocks/{block_id}/children", json={"children": children[i : i + 100]}
+            )
 
     async def update_page(self, page_id: str, body: dict) -> dict:
         return await self._req("PATCH", f"/pages/{page_id}", json=body)

@@ -14,10 +14,17 @@ from argos.sandbox.docker_sandbox import ExecResult
 async def _session(cfg, store, sandbox, output="x" * 50):
     sandbox.responses["cat"] = ExecResult(0, output, "", 1)
     return await run_session(
-        SessionOptions(task="t"), cfg,
-        FakeProvider([{"type": "tool_call", "tool": "shell.exec", "args": {"command": "cat f"}},
-                      {"type": "final", "message": "ok"}]),
-        store=store, sandbox_factory=lambda: sandbox)
+        SessionOptions(task="t"),
+        cfg,
+        FakeProvider(
+            [
+                {"type": "tool_call", "tool": "shell.exec", "args": {"command": "cat f"}},
+                {"type": "final", "message": "ok"},
+            ]
+        ),
+        store=store,
+        sandbox_factory=lambda: sandbox,
+    )
 
 
 async def test_purge_respects_retention_and_collects_blobs(cfg, store, fake_sandbox):
@@ -25,8 +32,10 @@ async def test_purge_respects_retention_and_collects_blobs(cfg, store, fake_sand
     new = await _session(cfg, store, fake_sandbox, "salida-nueva")
     future = datetime.now(UTC) + timedelta(days=cfg.audit.retention_days + 1)
     # Solo la sesión "antigua" queda fuera de plazo: la nueva se marca como recién terminada.
-    store.db.execute("UPDATE sessions SET ended_at=? WHERE id=?",
-                     ((future - timedelta(hours=1)).isoformat(), new.session_id))
+    store.db.execute(
+        "UPDATE sessions SET ended_at=? WHERE id=?",
+        ((future - timedelta(hours=1)).isoformat(), new.session_id),
+    )
     store.db.commit()
 
     dry = retention.purge(cfg, store, now=future, dry_run=True)

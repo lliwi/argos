@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# CI completa (~4 min) antes de publicar. Saltar: git push --no-verify
+exec "$(git rev-parse --show-toplevel)/scripts/ci.sh"

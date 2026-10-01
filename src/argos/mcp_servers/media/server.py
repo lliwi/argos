@@ -24,8 +24,15 @@ READ = ToolAnnotations(read_only_hint=True, idempotent_hint=True)
 ACTION = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False)
 ACTION_META = {"argos_risk": "destructive"}
 
-_STATUS = {0: "parado", 1: "en cola (check)", 2: "verificando", 3: "en cola",
-           4: "descargando", 5: "en cola (seed)", 6: "compartiendo"}
+_STATUS = {
+    0: "parado",
+    1: "en cola (check)",
+    2: "verificando",
+    3: "en cola",
+    4: "descargando",
+    5: "en cola (seed)",
+    6: "compartiendo",
+}
 
 server = MCPServer(name="media", version=VERSION)
 
@@ -37,8 +44,15 @@ def _jackett() -> JackettClient | None:
 
 def _transmission() -> TransmissionClient | None:
     url = os.environ.get("ARGOS_TRANSMISSION_URL")
-    return TransmissionClient(url, os.environ.get("ARGOS_TRANSMISSION_USER", ""),
-                              os.environ.get("ARGOS_TRANSMISSION_PASS", "")) if url else None
+    return (
+        TransmissionClient(
+            url,
+            os.environ.get("ARGOS_TRANSMISSION_USER", ""),
+            os.environ.get("ARGOS_TRANSMISSION_PASS", ""),
+        )
+        if url
+        else None
+    )
 
 
 def _dry_run() -> bool:
@@ -82,15 +96,23 @@ async def search(query: str, category: str = "") -> str:
     out = []
     for i, r in enumerate(results[:15], start=1):
         # El enlace real (magnet o /dl con api key) se guarda; no se muestra al modelo.
-        _LAST.append({"title": r.get("Title"),
-                      "link": r.get("MagnetUri") or r.get("Link") or ""})
-        out.append({"index": i, "title": r.get("Title"), "size": _size(r.get("Size")),
-                    "seeders": r.get("Seeders"), "category": r.get("CategoryDesc"),
-                    "tracker": r.get("Tracker")})
+        _LAST.append({"title": r.get("Title"), "link": r.get("MagnetUri") or r.get("Link") or ""})
+        out.append(
+            {
+                "index": i,
+                "title": r.get("Title"),
+                "size": _size(r.get("Size")),
+                "seeders": r.get("Seeders"),
+                "category": r.get("CategoryDesc"),
+                "tracker": r.get("Tracker"),
+            }
+        )
     if not out:
         return "(sin resultados)"
-    return ("Resultados (descarga uno con media.add index=<número>):\n"
-            + json.dumps(out, ensure_ascii=False, indent=2)[:12000])
+    return (
+        "Resultados (descarga uno con media.add index=<número>):\n"
+        + json.dumps(out, ensure_ascii=False, indent=2)[:12000]
+    )
 
 
 @server.tool(annotations=READ)
@@ -105,10 +127,16 @@ async def downloads() -> str:
         return f"ERROR: {exc}"
     finally:
         await client.aclose()
-    brief = [{"id": t.get("id"), "name": t.get("name"),
-              "progreso": f"{round((t.get('percentDone') or 0) * 100)}%",
-              "estado": _STATUS.get(t.get("status"), t.get("status")),
-              "velocidad": _size(t.get("rateDownload")) + "/s"} for t in ts]
+    brief = [
+        {
+            "id": t.get("id"),
+            "name": t.get("name"),
+            "progreso": f"{round((t.get('percentDone') or 0) * 100)}%",
+            "estado": _STATUS.get(t.get("status"), t.get("status")),
+            "velocidad": _size(t.get("rateDownload")) + "/s",
+        }
+        for t in ts
+    ]
     return json.dumps(brief, ensure_ascii=False, indent=2)[:12000] if brief else "(sin descargas)"
 
 

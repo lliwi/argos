@@ -30,12 +30,19 @@ def read_sections(path: Path) -> dict[str, str]:
 
 class ScratchpadWrite(Tool):
     name = "scratchpad.write"
-    description = ("Guarda tu plan, pendientes o hallazgos (sección: plan | todo | findings). "
-                   "Reemplaza la sección. Útil en tareas largas: el historial se poda, esto no.")
-    parameters = {"type": "object", "required": ["section", "content"],
-                  "properties": {"section": {"type": "string", "enum": list(SECTIONS)},
-                                 "content": {"type": "string"}}}
-    risk_class = RiskClass.READ   # solo escribe estado propio del agente, sin efectos externos
+    description = (
+        "Guarda tu plan, pendientes o hallazgos (sección: plan | todo | findings). "
+        "Reemplaza la sección. Útil en tareas largas: el historial se poda, esto no."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["section", "content"],
+        "properties": {
+            "section": {"type": "string", "enum": list(SECTIONS)},
+            "content": {"type": "string"},
+        },
+    }
+    risk_class = RiskClass.READ  # solo escribe estado propio del agente, sin efectos externos
     idempotent = True
 
     async def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -48,12 +55,19 @@ class ScratchpadWrite(Tool):
         previous = sections.get(section)
         sections[section] = content
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("".join(f"## {k}\n{sections[k]}\n\n" for k in SECTIONS if k in sections),
-                        encoding="utf-8")
+        path.write_text(
+            "".join(f"## {k}\n{sections[k]}\n\n" for k in SECTIONS if k in sections),
+            encoding="utf-8",
+        )
         if section == "plan":
-            ctx.emit(PlanEvent(session_id=ctx.session_id, turn_id=ctx.turn_id,
-                               plan_type="revise" if previous else "create",
-                               summary=content[:500]))
+            ctx.emit(
+                PlanEvent(
+                    session_id=ctx.session_id,
+                    turn_id=ctx.turn_id,
+                    plan_type="revise" if previous else "create",
+                    summary=content[:500],
+                )
+            )
         return ToolResult(f"sección {section} guardada ({len(content)} caracteres)")
 
 

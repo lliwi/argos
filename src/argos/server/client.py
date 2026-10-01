@@ -17,11 +17,15 @@ class CoreUnavailable(RuntimeError):
 class CoreClient:
     def __init__(self, socket_path: Path, timeout: float = 30) -> None:
         if not socket_path.exists():
-            raise CoreUnavailable(f"el núcleo no está en marcha (no existe {socket_path}); "
-                                  "arráncalo con `argos serve`")
+            raise CoreUnavailable(
+                f"el núcleo no está en marcha (no existe {socket_path}); "
+                "arráncalo con `argos serve`"
+            )
         self._client = httpx.AsyncClient(
             transport=httpx.AsyncHTTPTransport(uds=str(socket_path)),
-            base_url="http://argos", timeout=timeout)
+            base_url="http://argos",
+            timeout=timeout,
+        )
 
     async def __aenter__(self) -> CoreClient:
         return self
@@ -49,8 +53,9 @@ class CoreClient:
         return (await self._call("POST", "/sessions", json=body))["session_id"]
 
     async def create_thread(self, title: str, profile: str, channel: str) -> dict[str, Any]:
-        return await self._call("POST", "/threads", json={"title": title, "profile": profile,
-                                                          "channel": channel})
+        return await self._call(
+            "POST", "/threads", json={"title": title, "profile": profile, "channel": channel}
+        )
 
     async def threads(self) -> list[dict[str, Any]]:
         return await self._call("GET", "/threads")
@@ -76,10 +81,14 @@ class CoreClient:
     async def approvals(self) -> list[dict[str, Any]]:
         return await self._call("GET", "/approvals")
 
-    async def decide(self, approval_id: str, decision: str, approver: str,
-                     channel: str) -> bool:
-        return (await self._call("POST", f"/approvals/{approval_id}", json={
-            "decision": decision, "approver": approver, "channel": channel}))["ok"]
+    async def decide(self, approval_id: str, decision: str, approver: str, channel: str) -> bool:
+        return (
+            await self._call(
+                "POST",
+                f"/approvals/{approval_id}",
+                json={"decision": decision, "approver": approver, "channel": channel},
+            )
+        )["ok"]
 
     async def schedules(self) -> list[dict[str, Any]]:
         return await self._call("GET", "/schedules")
@@ -97,8 +106,9 @@ class CoreClient:
     async def events(self, sid: str, replay: bool = True) -> AsyncIterator[dict[str, Any]]:
         """Eventos de la sesión (y sus subagentes) en vivo; termina con su `session_end`."""
         params = {"replay": "1" if replay else "0"}
-        async with self._client.stream("GET", f"/sessions/{sid}/events", params=params,
-                                       timeout=None) as resp:
+        async with self._client.stream(
+            "GET", f"/sessions/{sid}/events", params=params, timeout=None
+        ) as resp:
             async for line in resp.aiter_lines():
                 if line.startswith("data: "):
                     yield json.loads(line[6:])

@@ -43,8 +43,9 @@ server = MCPServer(name="kali", version=VERSION)
 
 
 def _scope() -> Scope:
-    allow = tuple(h.strip() for h in os.environ.get("ARGOS_PENTEST_SCOPE", "").split(",")
-                  if h.strip())
+    allow = tuple(
+        h.strip() for h in os.environ.get("ARGOS_PENTEST_SCOPE", "").split(",") if h.strip()
+    )
     return Scope(allow, os.environ.get("ARGOS_PENTEST_AUTH") or None)
 
 
@@ -53,8 +54,10 @@ def _dry_run() -> bool:
 
 
 def _client() -> KaliRestClient:
-    return KaliRestClient(os.environ.get("ARGOS_KALI_URL", "http://kali:8000"),
-                          os.environ.get("ARGOS_KALI_TOKEN") or None)
+    return KaliRestClient(
+        os.environ.get("ARGOS_KALI_URL", "http://kali:8000"),
+        os.environ.get("ARGOS_KALI_TOKEN") or None,
+    )
 
 
 def _validate(tool: str, target: str, extra_args: str) -> None:
@@ -69,8 +72,14 @@ def _validate(tool: str, target: str, extra_args: str) -> None:
 
 
 # Clave con la que cada endpoint del servidor Kali espera el objetivo.
-_TARGET_KEY = {"nmap": "target", "nikto": "target", "gobuster": "url", "dirb": "url",
-               "sqlmap": "url", "wpscan": "url"}
+_TARGET_KEY = {
+    "nmap": "target",
+    "nikto": "target",
+    "gobuster": "url",
+    "dirb": "url",
+    "sqlmap": "url",
+    "wpscan": "url",
+}
 
 
 async def _run(tool: str, target: str, extra_args: str) -> str:
@@ -80,8 +89,10 @@ async def _run(tool: str, target: str, extra_args: str) -> str:
         return f"RECHAZADO: {exc}"
     payload = {_TARGET_KEY[tool]: target, "additional_args": extra_args}
     if _dry_run():
-        return (f"[dry-run] no se ejecuta. Herramienta {tool} contra {target} "
-                f"(args: {extra_args or 'por defecto'})")
+        return (
+            f"[dry-run] no se ejecuta. Herramienta {tool} contra {target} "
+            f"(args: {extra_args or 'por defecto'})"
+        )
     client = _client()
     try:
         return await client.run_tool(tool, payload)
@@ -131,6 +142,7 @@ async def sqlmap(target: str, additional_args: str = "--batch") -> str:
 # No hay ejecución de comandos libres: `packages` son nombres de paquete apt validados y el
 # comando lo compone el cliente REST. Requiere autorización de pentest (perfil configurado).
 
+
 def _parse_packages(spec: str) -> list[str]:
     names = [p for p in re.split(r"[,\s]+", (spec or "").strip()) if p]
     bad = [p for p in names if not _PKG_RE.match(p)]
@@ -144,8 +156,10 @@ async def install(packages: str) -> str:
     """Instala herramientas apt en el contenedor Kali (nombres separados por espacio o coma),
     p. ej. 'ffuf feroxbuster'. Solo instala paquetes, no ejecuta comandos."""
     if not _scope().authorized:
-        return ("RECHAZADO: perfil de pentest sin alcance/autorización; configura `scope` y "
-                "`authorization_ref` antes de provisionar el entorno.")
+        return (
+            "RECHAZADO: perfil de pentest sin alcance/autorización; configura `scope` y "
+            "`authorization_ref` antes de provisionar el entorno."
+        )
     try:
         names = _parse_packages(packages)
     except ScopeError as exc:

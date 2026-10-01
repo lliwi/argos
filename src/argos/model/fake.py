@@ -26,8 +26,7 @@ class FakeProvider:
         self.requests: list[ModelRequest] = []
         self.routes: list[Route | None] = []
 
-    async def complete(self, request: ModelRequest,
-                       route: Route | None = None) -> ModelResponse:
+    async def complete(self, request: ModelRequest, route: Route | None = None) -> ModelResponse:
         self.requests.append(request)
         self.routes.append(route)
         prompt = request.render()
@@ -42,5 +41,9 @@ class FakeProvider:
         raw = step if isinstance(step, str) else json.dumps(step, ensure_ascii=False)
         usage = Usage(prompt_tokens=estimate_tokens(prompt), completion_tokens=estimate_tokens(raw))
         return ModelResponse(
-            decision=parse_decision(raw), usage=usage, latency_ms=0, raw_text=raw,
-            model=f"fake/{route.name}" if route else "fake")
+            decision=parse_decision(raw),
+            usage=usage,
+            latency_ms=0,
+            raw_text=raw,
+            model=f"fake/{route.name}" if route else "fake",
+        )

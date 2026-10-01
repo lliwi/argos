@@ -101,7 +101,8 @@ async def test_segment_isolation(cfg, monkeypatch):
         # Desde el socket de osint, esa sesión no existe…
         with pytest.raises(SandboxError, match="no hay sandbox"):
             await BrokerSandbox(cfg.broker_socket("osint"), sid)._call(
-                "exec", command="cat /etc/passwd")
+                "exec", command="cat /etc/passwd"
+            )
         # …ni puede crearse: su workspace no está en el segmento osint.
         with pytest.raises(SandboxError, match="workspace"):
             await BrokerSandbox(cfg.broker_socket("osint"), sid).exec("true")

@@ -66,8 +66,10 @@ class CliApprover:
     async def request(self, req: ApprovalRequest) -> Decision:
         if not sys.stdin.isatty():
             return "timeout"
-        msg = (f"\n[APROBACIÓN] {req.action} (riesgo: {req.risk_class})\n{req.details}\n"
-               f"¿Aprobar? [s/N] (timeout {req.timeout_s}s): ")
+        msg = (
+            f"\n[APROBACIÓN] {req.action} (riesgo: {req.risk_class})\n{req.details}\n"
+            f"¿Aprobar? [s/N] (timeout {req.timeout_s}s): "
+        )
         if self.console:
             self.console.print(msg, style="bold yellow", end="")
         else:

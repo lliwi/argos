@@ -24,6 +24,7 @@ def progress_printer(verbose: bool = True):
             console.print(f"[dim]{clipped}[/]", highlight=False, markup=False)
         elif kind == "final":
             console.print(f"[bold green]✔ {text}[/]")
+
     return on_progress
 
 

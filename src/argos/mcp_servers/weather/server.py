@@ -34,11 +34,18 @@ def _summary(rows: list[dict]) -> list[dict]:
         probs = [h["rain_prob"] for h in hs if h["rain_prob"] is not None]
         wind = [h["wind_kmh"] for h in hs if h["wind_kmh"] is not None]
         rainy = [h["hour"] for h in hs if (h["rain_mm"] or 0) > 0 or (h["rain_prob"] or 0) >= 50]
-        out.append({"date": date, "hours": len(hs),
-                    "temp_min": min(temps, default=None), "temp_max": max(temps, default=None),
-                    "rain_total_mm": round(sum(rain), 1), "rain_prob_max": max(probs, default=None),
-                    "wind_max_kmh": max(wind, default=None),
-                    "rain_hours": rainy})
+        out.append(
+            {
+                "date": date,
+                "hours": len(hs),
+                "temp_min": min(temps, default=None),
+                "temp_max": max(temps, default=None),
+                "rain_total_mm": round(sum(rain), 1),
+                "rain_prob_max": max(probs, default=None),
+                "wind_max_kmh": max(wind, default=None),
+                "rain_hours": rainy,
+            }
+        )
     return out
 
 
@@ -54,9 +61,17 @@ async def hourly(city: str = "", hours: int = 24) -> str:
         rows = (await fetch_hourly(city))[:hours]
     except WeatherError as exc:
         return f"ERROR: {exc}"
-    return json.dumps({"city": city, "source": "eltiempo.es", "timezone": "Europe/Madrid",
-                       "summary": _summary(rows), "hourly": rows},
-                      ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(
+        {
+            "city": city,
+            "source": "eltiempo.es",
+            "timezone": "Europe/Madrid",
+            "summary": _summary(rows),
+            "hourly": rows,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

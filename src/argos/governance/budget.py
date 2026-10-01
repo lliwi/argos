@@ -17,15 +17,23 @@ def tokens_spent_today(store: AuditStore) -> int:
     today = datetime.now(UTC).date().isoformat()
     total = 0
     for (data,) in store.db.execute(
-            "SELECT data FROM events WHERE type='turn' AND ts >= ?", (today,)):
+        "SELECT data FROM events WHERE type='turn' AND ts >= ?", (today,)
+    ):
         d = json.loads(data)
         total += d.get("prompt_tokens", 0) + d.get("completion_tokens", 0)
     return total
 
 
 class BudgetTracker:
-    def __init__(self, session_id: str, session_limit: int, day_limit: int, warn_ratio: float,
-                 day_spent_before: int, emit: Callable[[Event], None]) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        session_limit: int,
+        day_limit: int,
+        warn_ratio: float,
+        day_spent_before: int,
+        emit: Callable[[Event], None],
+    ) -> None:
         self.session_id = session_id
         self.session_limit = session_limit
         self.day_limit = day_limit
@@ -67,5 +75,8 @@ class BudgetTracker:
         self._extended = True
 
     def _event(self, scope: str, limit: float, spent: float, action: str) -> None:
-        self.emit(BudgetEvent(session_id=self.session_id, scope=scope, limit=limit, spent=spent,
-                              action=action))
+        self.emit(
+            BudgetEvent(
+                session_id=self.session_id, scope=scope, limit=limit, spent=spent, action=action
+            )
+        )

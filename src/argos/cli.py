@@ -48,6 +48,7 @@ def make_provider(cfg: Config, name: str | None = None) -> ModelProvider:
 
 # --- ejecución ---------------------------------------------------------------------------------
 
+
 @app.command()
 def run(
     task: Annotated[str, typer.Argument(help="Tarea en lenguaje natural")],
@@ -60,18 +61,33 @@ def run(
 ) -> None:
     """Ejecuta una tarea en una sesión nueva (canal CLI)."""
     cfg, store = _ctx()
-    opts = SessionOptions(task=task, profile=profile, channel="cli", dry_run=dry_run,
-                          allow_domains=allow_domain or [], session_budget_tokens=budget)
+    opts = SessionOptions(
+        task=task,
+        profile=profile,
+        channel="cli",
+        dry_run=dry_run,
+        allow_domains=allow_domain or [],
+        session_budget_tokens=budget,
+    )
     try:
-        result = asyncio.run(run_session(
-            opts, cfg, make_provider(cfg, provider), store=store, approver=cli_approver(),
-            on_progress=progress_printer(verbose=not quiet)))
+        result = asyncio.run(
+            run_session(
+                opts,
+                cfg,
+                make_provider(cfg, provider),
+                store=store,
+                approver=cli_approver(),
+                on_progress=progress_printer(verbose=not quiet),
+            )
+        )
     except SessionRefused as exc:
         console.print(f"[red]Sesión rechazada:[/] {exc}")
         raise typer.Exit(2) from exc
     color = "green" if result.status == "completed" else "red"
-    console.print(f"\n[{color}]{result.status}[/] · sesión {result.session_id} · "
-                  f"{result.steps} pasos · {result.tokens} tokens · workspace {result.workspace}")
+    console.print(
+        f"\n[{color}]{result.status}[/] · sesión {result.session_id} · "
+        f"{result.steps} pasos · {result.tokens} tokens · workspace {result.workspace}"
+    )
     if result.status != "completed":
         console.print(f"[{color}]{result.message}[/]")
         raise typer.Exit(1)
@@ -79,8 +95,9 @@ def run(
 
 # --- núcleo persistente (RF-04) -----------------------------------------------------------------
 
-core_app = typer.Typer(help="Núcleo persistente: API, sesiones en segundo plano, scheduler.",
-                       no_args_is_help=True)
+core_app = typer.Typer(
+    help="Núcleo persistente: API, sesiones en segundo plano, scheduler.", no_args_is_help=True
+)
 app.add_typer(core_app, name="core")
 
 
@@ -96,9 +113,11 @@ def serve(
 
     cfg, store = _ctx()
     core = Core(cfg, store, lambda: make_provider(cfg), load_scheduler_cfg(cfg))
-    console.print(f"[green]Argos[/] segmento [bold]{cfg.segment}[/] · API {cfg.api_socket}"
-                  + (f" · webhooks {hooks_host}:{hooks_port}" if hooks_port else "")
-                  + f" · {len(core.scheduler.sched.schedules)} tareas programadas")
+    console.print(
+        f"[green]Argos[/] segmento [bold]{cfg.segment}[/] · API {cfg.api_socket}"
+        + (f" · webhooks {hooks_host}:{hooks_port}" if hooks_port else "")
+        + f" · {len(core.scheduler.sched.schedules)} tareas programadas"
+    )
     try:
         asyncio.run(run_server(core, cfg.api_socket, hooks_host, hooks_port))
     except KeyboardInterrupt:
@@ -135,8 +154,12 @@ def _compact_line(data: dict, root: str) -> str | None:
         return f"[dim red]{pad}  ✗ {escape((data.get('result_preview') or '')[:100])}[/]"
     if kind == "memory_event" and data.get("op") == "save":
         return f"[dim]{pad}· recordado: {escape(data.get('detail', '')[:90])}[/]"
-    if kind == "error_event" and data.get("kind") in ("budget_exceeded", "loop_detected",
-                                                      "model_error", "killed"):
+    if kind == "error_event" and data.get("kind") in (
+        "budget_exceeded",
+        "loop_detected",
+        "model_error",
+        "killed",
+    ):
         return f"[red]{pad}{data['kind']}: {escape(data['message'][:120])}[/]"
     if kind == "session_end" and not sub_:
         color = "" if data["status"] == "completed" else "red"
@@ -146,8 +169,7 @@ def _compact_line(data: dict, root: str) -> str | None:
     return None
 
 
-async def _attach(sid: str, interactive: bool = True, compact: bool = False,
-                  on_state=None) -> str:
+async def _attach(sid: str, interactive: bool = True, compact: bool = False, on_state=None) -> str:
     """Muestra el progreso en vivo y resuelve aprobaciones desde la terminal (canal CLI).
     `on_state(state, message)` (async) recibe blocked/working al pedir y resolver aprobaciones."""
     import sys
@@ -164,8 +186,10 @@ async def _attach(sid: str, interactive: bool = True, compact: bool = False,
                 console.print(f"[bold]FIN[/] estado={status}: {data.get('message', '')}")
                 continue
             if data.get("type") == "approval_request":
-                console.print(f"\n[bold yellow]APROBACIÓN {data['id']}[/] {data['action']} "
-                              f"(riesgo {data['risk_class']}, {data['timeout_s']}s)")
+                console.print(
+                    f"\n[bold yellow]APROBACIÓN {data['id']}[/] {data['action']} "
+                    f"(riesgo {data['risk_class']}, {data['timeout_s']}s)"
+                )
                 console.print(data["details"], markup=False, highlight=False)
                 if on_state:
                     await on_state("blocked", f"aprobación: {data['action']}"[:80])
@@ -173,12 +197,14 @@ async def _attach(sid: str, interactive: bool = True, compact: bool = False,
                     console.print(f"  responde con: argos core approve {data['id']} [--deny]")
                     continue
                 try:
-                    answer = await asyncio.wait_for(asyncio.to_thread(
-                        input, "¿Aprobar? [s/N] "), data["timeout_s"])
+                    answer = await asyncio.wait_for(
+                        asyncio.to_thread(input, "¿Aprobar? [s/N] "), data["timeout_s"]
+                    )
                 except TimeoutError:
                     continue
-                decision = "approved" if answer.strip().lower() in ("s", "si", "sí", "y") \
-                    else "denied"
+                decision = (
+                    "approved" if answer.strip().lower() in ("s", "si", "sí", "y") else "denied"
+                )
                 await client.decide(data["id"], decision, "cli-user", "cli")
                 if on_state:
                     await on_state("working", "continuando tras la aprobación")
@@ -208,12 +234,15 @@ def console_cmd() -> None:
     from argos.channels.console import HerdrReporter, run_console
 
     reporter = HerdrReporter()
-    console.print("[bold]Argos · consola[/]" + (
-        f" · Herdr pane {reporter.pane}" if reporter.enabled else " · (sin Herdr)"))
+    console.print(
+        "[bold]Argos · consola[/]"
+        + (f" · Herdr pane {reporter.pane}" if reporter.enabled else " · (sin Herdr)")
+    )
 
     async def go() -> None:
         async with _client() as client:
             await run_console(client, reporter, console)
+
     try:
         asyncio.run(go())
     except KeyboardInterrupt:
@@ -245,7 +274,7 @@ def chat_cmd(
     # Dentro de Herdr, el chat se anuncia como agente (lista «agentes» de la barra lateral).
     herdr = HerdrReporter()
     if herdr.enabled:
-        sys.stdout.write("\033]0;argos · chat\007")      # título del pane: lo localiza el plugin
+        sys.stdout.write("\033]0;argos · chat\007")  # título del pane: lo localiza el plugin
         sys.stdout.flush()
 
     def report(st: str, msg: str) -> None:
@@ -260,9 +289,13 @@ def chat_cmd(
             current["thread"] = await new_thread(task[:60])
         await herdr.state("working", task[:80])
         async with _client() as client:
-            sid = await client.submit(task=task, profile=profile, channel="chat",
-                                      thread_id=current["thread"],
-                                      attachments=[a.to_api() for a in attachments])
+            sid = await client.submit(
+                task=task,
+                profile=profile,
+                channel="chat",
+                thread_id=current["thread"],
+                attachments=[a.to_api() for a in attachments],
+            )
         if verbose:
             console.print(f"[dim]sesión {sid[:12]} · hilo {current['thread']}[/]")
         await _attach(sid, compact=not verbose, on_state=herdr.state)
@@ -276,8 +309,10 @@ def chat_cmd(
                 console.print(f"[red]{exc}[/]")
                 return
             if not paths:
-                console.print("uso: /adjuntar <ruta> [más rutas]  (también: arrastra el fichero "
-                              "o Ctrl-V con una imagen copiada)")
+                console.print(
+                    "uso: /adjuntar <ruta> [más rutas]  (también: arrastra el fichero "
+                    "o Ctrl-V con una imagen copiada)"
+                )
                 return
             for p in paths:
                 try:
@@ -289,8 +324,7 @@ def chat_cmd(
                 console.print("[dim]sin adjuntos pendientes[/]")
             for i, a in enumerate(pending.items, 1):
                 kind = "imagen" if a.is_image else "fichero"
-                console.print(f"{i}. {a.name} ({kind}, {len(a.data) // 1024} KB)",
-                              highlight=False)
+                console.print(f"{i}. {a.name} ({kind}, {len(a.data) // 1024} KB)", highlight=False)
         elif cmd == "/quitar":
             gone = pending.remove(rest.strip())
             console.print(f"quitado: {', '.join(gone)}" if gone else "[dim]nada que quitar[/]")
@@ -300,19 +334,23 @@ def chat_cmd(
         elif cmd == "/threads":
             for t in state.threads(10):
                 mark = "›" if t.id == current["thread"] else " "
-                console.print(f"{mark} {t.id}  {t.updated_at[:16]}  {t.title}", markup=False,
-                              highlight=False)
+                console.print(
+                    f"{mark} {t.id}  {t.updated_at[:16]}  {t.title}", markup=False, highlight=False
+                )
             console.print("[dim]retoma uno con: argos chat --thread <id>[/]")
         elif cmd in ("/memoria", "/memory"):
             for m in state.memories(profile, limit=15):
                 who = "tú" if m.provenance == "user" else "agente"
                 pin = "📌" if m.pinned else " "
-                console.print(f"{pin} {m.id} [{m.kind} · {who}] {m.content}", markup=False,
-                              highlight=False)
+                console.print(
+                    f"{pin} {m.id} [{m.kind} · {who}] {m.content}", markup=False, highlight=False
+                )
         elif cmd in ("/herramientas", "/tools"):
+
             async def show_tools() -> None:
                 async with _client() as client:
                     console.print(_render_tools(await client.tools(profile)))
+
             asyncio.run(show_tools())
         else:
             console.print(
@@ -320,7 +358,8 @@ def chat_cmd(
                 "descartar · /new  nueva conversación · /threads  hilos · /memoria  lo que "
                 "recuerda · /herramientas  tools del perfil\n"
                 "Flechas: editar e historial · Alt-Enter: salto de línea · Ctrl-V: pegar imagen "
-                "· arrastra ficheros para adjuntarlos · Ctrl-D: salir")
+                "· arrastra ficheros para adjuntarlos · Ctrl-D: salir"
+            )
 
     where = f"hilo {thread}" if thread else "conversación nueva"
     console.print(f"[bold]Argos[/] · perfil {profile} · {where} · /help para comandos")
@@ -336,7 +375,7 @@ def chat_cmd(
                 else:
                     task = input("\nargos> ").strip()
             except KeyboardInterrupt:
-                continue                  # Ctrl-C en el prompt: descarta la línea
+                continue  # Ctrl-C en el prompt: descarta la línea
             except EOFError:
                 console.print()
                 return
@@ -351,11 +390,13 @@ def chat_cmd(
             try:
                 asyncio.run(one(task, attachments))
             except KeyboardInterrupt:
-                console.print("[yellow]desconectado (la sesión sigue en el núcleo; "
-                              "`argos core attach` para retomarla)[/]")
+                console.print(
+                    "[yellow]desconectado (la sesión sigue en el núcleo; "
+                    "`argos core attach` para retomarla)[/]"
+                )
             except RuntimeError as exc:
                 console.print(f"[red]{exc}[/]")
-                pending.items[:0] = attachments        # no se pierden si el envío falló
+                pending.items[:0] = attachments  # no se pierden si el envío falló
             report("idle", "listo")
     finally:
         asyncio.run(herdr.release())
@@ -373,12 +414,20 @@ def matrix_cmd() -> None:
     cfg = load_config()
     mc = cfg.matrix
     token = os.environ.get(mc.token_env, "")
-    missing = [n for n, v in (("matrix.homeserver", mc.homeserver),
-                              ("matrix.allowed_users", mc.allowed_users),
-                              (mc.token_env, token)) if not v]
+    missing = [
+        n
+        for n, v in (
+            ("matrix.homeserver", mc.homeserver),
+            ("matrix.allowed_users", mc.allowed_users),
+            (mc.token_env, token),
+        )
+        if not v
+    ]
     if missing:
-        console.print(f"[red]Falta configuración:[/] {', '.join(missing)} "
-                      "(config/argos.yaml y secrets/matrix.env)")
+        console.print(
+            f"[red]Falta configuración:[/] {', '.join(missing)} "
+            "(config/argos.yaml y secrets/matrix.env)"
+        )
         raise typer.Exit(2)
     if not cfg.allows_profile(mc.profile):
         raise typer.BadParameter(f"perfil {mc.profile!r} fuera del segmento {cfg.segment!r}")
@@ -388,14 +437,22 @@ def matrix_cmd() -> None:
         matrix = MatrixClient(mc.homeserver, token)
         try:
             async with _client() as core:
-                bridge = MatrixBridge(matrix, core, BridgeConfig(
-                    allowed_users=mc.allowed_users, profile=mc.profile,
-                    notify_room=mc.notify_room, progress_interval_s=mc.progress_interval_s,
-                    open_dm=mc.open_dm),
-                    cfg.data_path / "matrix.db")
+                bridge = MatrixBridge(
+                    matrix,
+                    core,
+                    BridgeConfig(
+                        allowed_users=mc.allowed_users,
+                        profile=mc.profile,
+                        notify_room=mc.notify_room,
+                        progress_interval_s=mc.progress_interval_s,
+                        open_dm=mc.open_dm,
+                    ),
+                    cfg.data_path / "matrix.db",
+                )
                 await bridge.run()
         finally:
             await matrix.aclose()
+
     try:
         asyncio.run(go())
     except KeyboardInterrupt:
@@ -404,8 +461,9 @@ def matrix_cmd() -> None:
 
 @app.command("matrix-login")
 def matrix_login_cmd(
-    force: Annotated[bool, typer.Option("--force", help="Rehacer login aunque el token valga")]
-    = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Rehacer login aunque el token valga")
+    ] = False,
 ) -> None:
     """Obtiene el token del bot con las credenciales del inventario (servicio `matrix`: user,
     password y opcionalmente homeserver) y lo guarda en secrets/matrix.env (600). Ni la
@@ -424,8 +482,12 @@ def matrix_login_cmd(
     if not user or not password:
         console.print("[red]Falta user o password en secrets/inventory.yaml (servicio matrix)[/]")
         raise typer.Exit(2)
-    homeserver = (svc.get("homeserver") or svc.get("url") or cfg.matrix.homeserver
-                  or f"https://{str(user).split(':', 1)[1]}")
+    homeserver = (
+        svc.get("homeserver")
+        or svc.get("url")
+        or cfg.matrix.homeserver
+        or f"https://{str(user).split(':', 1)[1]}"
+    )
     env_path = cfg.root / "secrets" / "matrix.env"
 
     async def valid(token: str) -> str | None:
@@ -443,8 +505,10 @@ def matrix_login_cmd(
             if line.startswith(f"{cfg.matrix.token_env}="):
                 old = line.split("=", 1)[1].strip()
     if old and not force and (who := asyncio.run(valid(old))):
-        console.print(f"El token de secrets/matrix.env ya es válido para {who}; nada que hacer "
-                      "(--force para renovarlo).")
+        console.print(
+            f"El token de secrets/matrix.env ya es válido para {who}; nada que hacer "
+            "(--force para renovarlo)."
+        )
         return
     try:
         data = asyncio.run(login(homeserver, str(user), password))
@@ -455,18 +519,22 @@ def matrix_login_cmd(
     with os.fdopen(fd, "w") as fh:
         fh.write(f"{cfg.matrix.token_env}={data['access_token']}\n")
     Path(env_path).chmod(0o600)
-    console.print(f"Token guardado en secrets/matrix.env para {data.get('user_id')} "
-                  f"(dispositivo {data.get('device_id')}) en {homeserver}.")
+    console.print(
+        f"Token guardado en secrets/matrix.env para {data.get('user_id')} "
+        f"(dispositivo {data.get('device_id')}) en {homeserver}."
+    )
 
 
 # --- memoria (RF-18) -----------------------------------------------------------------------------
 
-memory_app = typer.Typer(help="Memoria durable: inspeccionar, editar y borrar (RF-18).",
-                         no_args_is_help=True)
+memory_app = typer.Typer(
+    help="Memoria durable: inspeccionar, editar y borrar (RF-18).", no_args_is_help=True
+)
 app.add_typer(memory_app, name="memory")
 
-inventory_app = typer.Typer(help="Inventario de infraestructura (secrets/inventory.yaml).",
-                            no_args_is_help=True)
+inventory_app = typer.Typer(
+    help="Inventario de infraestructura (secrets/inventory.yaml).", no_args_is_help=True
+)
 app.add_typer(inventory_app, name="inventory")
 
 
@@ -494,8 +562,10 @@ def inventory_set(
 
     if is_secret(field):
         if value is not None:
-            console.print("[red]No pases secretos como argumento (quedan en el historial de "
-                          "shell). Omite el valor y se pedirá de forma oculta.[/]")
+            console.print(
+                "[red]No pases secretos como argumento (quedan en el historial de "
+                "shell). Omite el valor y se pedirá de forma oculta.[/]"
+            )
             raise typer.Exit(2)
         value = typer.prompt(f"{service}.{field}", hide_input=True, confirmation_prompt=True)
     elif value is None:
@@ -521,8 +591,15 @@ def memory_list(
     items = st.search(profile or "personal", query, 30) if query else st.memories(profile)
     table = Table("id", "perfil", "tipo", "origen", "📌", "contenido", "actualizada")
     for m in items:
-        table.add_row(m.id, m.profile, m.kind, "tú" if m.provenance == "user" else "agente",
-                      "sí" if m.pinned else "", m.content, m.updated_at[:16])
+        table.add_row(
+            m.id,
+            m.profile,
+            m.kind,
+            "tú" if m.provenance == "user" else "agente",
+            "sí" if m.pinned else "",
+            m.content,
+            m.updated_at[:16],
+        )
     console.print(table)
 
 
@@ -567,14 +644,17 @@ def core_submit(
     follow: Annotated[bool, typer.Option("--follow/--detach")] = True,
 ) -> None:
     """Envía una tarea al núcleo persistente; por defecto sigue su progreso."""
+
     async def go() -> None:
         async with _client() as client:
-            sid = await client.submit(task=task, profile=profile, dry_run=dry_run,
-                                      budget_tokens=budget, channel="cli")
+            sid = await client.submit(
+                task=task, profile=profile, dry_run=dry_run, budget_tokens=budget, channel="cli"
+            )
         console.print(f"sesión [bold]{sid}[/]")
         if follow:
             status = await _attach(sid)
             raise typer.Exit(0 if status == "completed" else 1)
+
     asyncio.run(go())
 
 
@@ -587,10 +667,12 @@ def core_attach(session: str) -> None:
 @core_app.command("status")
 def core_status() -> None:
     """Salud del núcleo, sesiones en curso, aprobaciones pendientes y tareas programadas."""
+
     async def go() -> None:
         async with _client() as client:
             health, sessions, pending, schedules = await asyncio.gather(
-                client.health(), client.sessions(), client.approvals(), client.schedules())
+                client.health(), client.sessions(), client.approvals(), client.schedules()
+            )
         console.print_json(json.dumps(health))
         live = [s for s in sessions if s["live"]]
         if live:
@@ -599,14 +681,23 @@ def core_status() -> None:
                 t.add_row(s["id"][:12], s["profile"], s["channel"], (s["task"] or "")[:60])
             console.print(t)
         for a in pending:
-            console.print(f"[yellow]pendiente {a['id']}[/] {a['action']} ({a['risk_class']}) "
-                          f"sesión {a['session_id'][:12]}")
+            console.print(
+                f"[yellow]pendiente {a['id']}[/] {a['action']} ({a['risk_class']}) "
+                f"sesión {a['session_id'][:12]}"
+            )
         if schedules:
             t = Table("tarea", "cron", "activa", "última", "estado", "omitidas")
             for sc in schedules:
-                t.add_row(sc["name"], sc["cron"], str(sc["enabled"]), sc["last_fired"] or "-",
-                          sc["last_status"] or "-", str(sc["skipped"]))
+                t.add_row(
+                    sc["name"],
+                    sc["cron"],
+                    str(sc["enabled"]),
+                    sc["last_fired"] or "-",
+                    sc["last_status"] or "-",
+                    str(sc["skipped"]),
+                )
             console.print(t)
+
     asyncio.run(go())
 
 
@@ -616,10 +707,13 @@ def core_approve(
     deny: Annotated[bool, typer.Option("--deny", help="Denegar en lugar de aprobar")] = False,
 ) -> None:
     """Responde a una aprobación pendiente (desde cualquier terminal, RF-20)."""
+
     async def go() -> bool:
         async with _client() as client:
-            return await client.decide(approval_id, "denied" if deny else "approved",
-                                       "cli-user", "cli")
+            return await client.decide(
+                approval_id, "denied" if deny else "approved", "cli-user", "cli"
+            )
+
     ok = asyncio.run(go())
     console.print("[green]registrada[/]" if ok else "[red]no existe o ya resuelta[/]")
 
@@ -627,26 +721,36 @@ def core_approve(
 @core_app.command("cancel")
 def core_cancel(session: str) -> None:
     """Cancela una sesión en curso."""
+
     async def go() -> bool:
         async with _client() as client:
             return await client.cancel(session)
+
     console.print("[green]cancelada[/]" if asyncio.run(go()) else "[red]no está en curso[/]")
 
 
 @core_app.command("run-schedule")
 def core_run_schedule(name: str) -> None:
     """Dispara ahora una tarea programada (misma política: sin aprobador humano)."""
+
     async def go() -> dict:
         async with _client() as client:
             return await client.run_schedule(name)
+
     console.print(asyncio.run(go()))
 
 
 def _render_tools(items: list[dict]) -> Table:
     table = Table("tool", "versión", "riesgo", "idempotente", "origen", "descripción")
     for t in items:
-        table.add_row(t["name"], t["version"], t["risk"], str(t["idempotent"]),
-                      t.get("mcp_server") or "núcleo", t["description"])
+        table.add_row(
+            t["name"],
+            t["version"],
+            t["risk"],
+            str(t["idempotent"]),
+            t.get("mcp_server") or "núcleo",
+            t["description"],
+        )
     return table
 
 
@@ -681,9 +785,11 @@ def purge(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -> None:
     cfg, store = _ctx()
     report = retention.purge(cfg, store, dry_run=dry_run)
     verb = "Se purgarían" if dry_run else "Purgadas"
-    console.print(f"{verb} {len(report.sessions)} sesiones, {report.memories} memorias y "
-                  f"{report.blobs} blobs huérfanos ({report.bytes_freed / 1e6:.1f} MB) en el "
-                  f"segmento {cfg.segment}.")
+    console.print(
+        f"{verb} {len(report.sessions)} sesiones, {report.memories} memorias y "
+        f"{report.blobs} blobs huérfanos ({report.bytes_freed / 1e6:.1f} MB) en el "
+        f"segmento {cfg.segment}."
+    )
 
 
 @app.command()
@@ -700,14 +806,22 @@ def backup(no_encrypt: Annotated[bool, typer.Option("--no-encrypt")] = False) ->
 
 # --- auditoría ---------------------------------------------------------------------------------
 
+
 @audit_app.command("list")
 def audit_list(limit: int = 20) -> None:
     """Últimas sesiones."""
     _, store = _ctx()
     table = Table("sesión", "inicio", "perfil", "canal", "estado", "modelo", "tarea")
     for s in store.sessions(limit):
-        table.add_row(s["id"][:12], s["started_at"][:19], s["profile"], s["channel"],
-                      s["status"], s["model"], (s["task"] or "")[:60])
+        table.add_row(
+            s["id"][:12],
+            s["started_at"][:19],
+            s["profile"],
+            s["channel"],
+            s["status"],
+            s["model"],
+            (s["task"] or "")[:60],
+        )
     console.print(table)
 
 
@@ -716,12 +830,26 @@ def audit_show(session: str) -> None:
     """Resumen de una sesión con las versiones que la produjeron (CA-7)."""
     _, store = _ctx()
     s = summarize(store, store.resolve_session(session))
-    console.print_json(json.dumps({
-        "session": s.session_id, "status": s.status, "profile": s.profile,
-        "versions": s.versions, "steps": s.steps, "tokens": s.tokens, "cost_equiv_usd": s.cost,
-        "tool_calls": s.tool_calls, "tool_errors": s.tool_errors, "shell_execs": s.shell_execs,
-        "package_installs": s.installs, "errors": dict(s.errors), "duration_s": s.duration_s,
-    }, default=str))
+    console.print_json(
+        json.dumps(
+            {
+                "session": s.session_id,
+                "status": s.status,
+                "profile": s.profile,
+                "versions": s.versions,
+                "steps": s.steps,
+                "tokens": s.tokens,
+                "cost_equiv_usd": s.cost,
+                "tool_calls": s.tool_calls,
+                "tool_errors": s.tool_errors,
+                "shell_execs": s.shell_execs,
+                "package_installs": s.installs,
+                "errors": dict(s.errors),
+                "duration_s": s.duration_s,
+            },
+            default=str,
+        )
+    )
 
 
 @audit_app.command("replay")
@@ -744,14 +872,38 @@ def audit_cost(session: str) -> None:
     """Tokens y coste por turno y total (CA-4, RF-CTX-08)."""
     _, store = _ctx()
     s = summarize(store, store.resolve_session(session))
-    table = Table("turno", "ruta", "modelo", "prompt", "completion", "cached",
-                  "contexto (chars)", "coste eq. USD")
+    table = Table(
+        "turno",
+        "ruta",
+        "modelo",
+        "prompt",
+        "completion",
+        "cached",
+        "contexto (chars)",
+        "coste eq. USD",
+    )
     for t in s.per_turn:
         seq = str(t["seq"]) + (" (int)" if t["purpose"] == "internal" else "")
-        table.add_row(seq, t["route"] or "-", t["model"], str(t["prompt"]), str(t["completion"]),
-                      str(t["cached"]), str(t["context_chars"]), f"{t['cost']:.6f}")
-    table.add_row("[bold]total", "", "", str(s.prompt_tokens), str(s.completion_tokens),
-                  str(s.cached_tokens), "", f"[bold]{s.cost:.6f}")
+        table.add_row(
+            seq,
+            t["route"] or "-",
+            t["model"],
+            str(t["prompt"]),
+            str(t["completion"]),
+            str(t["cached"]),
+            str(t["context_chars"]),
+            f"{t['cost']:.6f}",
+        )
+    table.add_row(
+        "[bold]total",
+        "",
+        "",
+        str(s.prompt_tokens),
+        str(s.completion_tokens),
+        str(s.cached_tokens),
+        "",
+        f"[bold]{s.cost:.6f}",
+    )
     console.print(table)
 
 
@@ -783,14 +935,25 @@ def audit_metrics() -> None:
     t1 = Table("perfil", "sesiones", "tasa éxito", "tokens", "coste eq.", "duración media s")
     for name, p in m["profiles"].items():
         n = p["sessions"] or 1
-        t1.add_row(name, str(int(p["sessions"])), f"{p['completed'] / n:.0%}",
-                   str(int(p["tokens"])), f"{p['cost']:.4f}", f"{p['duration_s'] / n:.1f}")
+        t1.add_row(
+            name,
+            str(int(p["sessions"])),
+            f"{p['completed'] / n:.0%}",
+            str(int(p["tokens"])),
+            f"{p['cost']:.4f}",
+            f"{p['duration_s'] / n:.1f}",
+        )
     console.print(t1)
     t2 = Table("tool", "llamadas", "tasa error", "reintentos", "duración media ms")
     for name, t in m["tools"].items():
         n = t["calls"] or 1
-        t2.add_row(name, str(int(t["calls"])), f"{t['errors'] / n:.0%}", str(int(t["retries"])),
-                   f"{t['duration_ms'] / n:.0f}")
+        t2.add_row(
+            name,
+            str(int(t["calls"])),
+            f"{t['errors'] / n:.0%}",
+            str(int(t["retries"])),
+            f"{t['duration_ms'] / n:.0f}",
+        )
     console.print(t2)
     console.print({"errores": m["errors"]})
 
@@ -804,12 +967,14 @@ def audit_feedback(
     """Registra feedback humano sobre una sesión (RF-OB-07)."""
     _, store = _ctx()
     sid = store.resolve_session(session)
-    store.emit(Feedback(session_id=sid, trace_id=sid, rating=rating, correction=correction,
-                        source="human"))
+    store.emit(
+        Feedback(session_id=sid, trace_id=sid, rating=rating, correction=correction, source="human")
+    )
     console.print("[green]Feedback registrado.[/]")
 
 
 # --- skills ------------------------------------------------------------------------------------
+
 
 @skills_app.command("list")
 def skills_list() -> None:
@@ -852,6 +1017,7 @@ def skills_install(
 
 # --- evaluación --------------------------------------------------------------------------------
 
+
 def _parse_sets(values: list[str] | None) -> dict[str, object]:
     """`clave.anidada=valor` (valor en YAML) → overrides de configuración."""
     out: dict[str, object] = {}
@@ -869,8 +1035,11 @@ def eval_run(
     provider: Annotated[str, typer.Option(help="fake (CI) | codex")] = "fake",
     task: Annotated[list[str] | None, typer.Option(help="Solo estas tareas")] = None,
     repeat: Annotated[int, typer.Option(min=1, help="Corridas por tarea (modelos reales)")] = 1,
-    set_: Annotated[list[str] | None, typer.Option(
-        "--set", help="Override de config para A/B, p. ej. model.routes.decide.model=gpt-6-luna")
+    set_: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--set", help="Override de config para A/B, p. ej. model.routes.decide.model=gpt-6-luna"
+        ),
     ] = None,
     baseline: Annotated[Path | None, typer.Option(help="JSON de una corrida previa")] = None,
     save_baseline: Annotated[bool, typer.Option(help="Guarda como evals/baselines/")] = False,
@@ -879,17 +1048,33 @@ def eval_run(
     overrides = _parse_sets(set_)
     cfg = load_config(overrides=overrides)
     store = AuditStore(cfg.data_path, Redactor(cfg.audit.redact_pii))
-    summary = asyncio.run(run_suite(
-        cfg, store, suite, provider, lambda: make_provider(cfg, provider), task,
-        baseline_ref=str(baseline) if baseline else None, repeat=repeat, overrides=overrides))
+    summary = asyncio.run(
+        run_suite(
+            cfg,
+            store,
+            suite,
+            provider,
+            lambda: make_provider(cfg, provider),
+            task,
+            baseline_ref=str(baseline) if baseline else None,
+            repeat=repeat,
+            overrides=overrides,
+        )
+    )
     table = Table("tarea", "run", "estado", "score", "pasos", "tokens", "sesión", "detalle")
     for t in summary["tasks"]:
         failed = [c["detail"] for c in t["checks"] if not c["passed"] and c["required"]]
         color = {"passed": "green", "failed": "red", "skipped": "yellow"}.get(t["status"], "red")
-        table.add_row(t["task_id"], str(t["metrics"].get("run", "")), f"[{color}]{t['status']}",
-                      f"{t['score']:.2f}", str(t["metrics"].get("steps", "")),
-                      str(t["metrics"].get("tokens", "")), (t["session_id"] or "")[:12],
-                      t["reason"] or "; ".join(failed)[:80])
+        table.add_row(
+            t["task_id"],
+            str(t["metrics"].get("run", "")),
+            f"[{color}]{t['status']}",
+            f"{t['score']:.2f}",
+            str(t["metrics"].get("steps", "")),
+            str(t["metrics"].get("tokens", "")),
+            (t["session_id"] or "")[:12],
+            t["reason"] or "; ".join(failed)[:80],
+        )
     console.print(table)
     console.print(summary["aggregate"])
     console.print(f"[dim]resultado: {cfg.data_path / 'evals' / (summary['run_id'] + '.json')}[/]")
@@ -913,15 +1098,24 @@ def eval_compare(a: Path, b: Path) -> None:
     """Compara dos corridas de evaluación (A/B, RF-EV-04)."""
     ra, rb = json.loads(a.read_text()), json.loads(b.read_text())
     for label, r in (("A", ra), ("B", rb)):
-        console.print(f"{label}: {r['run_id']} overrides={r.get('overrides', {})} "
-                      f"config={r['config_hash']}")
+        console.print(
+            f"{label}: {r['run_id']} overrides={r.get('overrides', {})} config={r['config_hash']}"
+        )
     table = Table("tarea", "éxito A", "éxito B", "tokens A", "tokens B", "pasos A", "pasos B")
     for tid, x, y in compare_runs(ra, rb):
+
         def pct(m):
             return f"{m['pass_rate']:.0%}" if m else "-"
-        table.add_row(tid, pct(x), pct(y), str(x.get("mean_tokens", "-")),
-                      str(y.get("mean_tokens", "-")), str(x.get("mean_steps", "-")),
-                      str(y.get("mean_steps", "-")))
+
+        table.add_row(
+            tid,
+            pct(x),
+            pct(y),
+            str(x.get("mean_tokens", "-")),
+            str(y.get("mean_tokens", "-")),
+            str(x.get("mean_steps", "-")),
+            str(y.get("mean_steps", "-")),
+        )
     console.print(table)
     console.print({"A": ra["aggregate"], "B": rb["aggregate"]})
 

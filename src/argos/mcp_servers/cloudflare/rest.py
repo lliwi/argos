@@ -24,11 +24,19 @@ class CloudflarePermissionError(CloudflareError):
 
 
 class CloudflareClient:
-    def __init__(self, token: str, base_url: str = API, timeout: float = 30,
-                 transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        token: str,
+        base_url: str = API,
+        timeout: float = 30,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._http = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), timeout=timeout, transport=transport,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+            base_url=base_url.rstrip("/"),
+            timeout=timeout,
+            transport=transport,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -55,8 +63,9 @@ class CloudflareClient:
     async def _paged(self, path: str, params: dict | None = None, max_pages: int = 5) -> list[dict]:
         out: list[dict] = []
         for page in range(1, max_pages + 1):
-            body = await self._req("GET", path, params={**(params or {}), "page": page,
-                                                        "per_page": 100})
+            body = await self._req(
+                "GET", path, params={**(params or {}), "page": page, "per_page": 100}
+            )
             out.extend(body.get("result") or [])
             info = body.get("result_info") or {}
             if page >= int(info.get("total_pages") or 1):
@@ -74,8 +83,9 @@ class CloudflareClient:
         return (await self._req("POST", f"/zones/{zone_id}/dns_records", json=record))["result"]
 
     async def dns_update(self, zone_id: str, record_id: str, changes: dict) -> dict:
-        return (await self._req("PATCH", f"/zones/{zone_id}/dns_records/{record_id}",
-                                json=changes))["result"]
+        return (
+            await self._req("PATCH", f"/zones/{zone_id}/dns_records/{record_id}", json=changes)
+        )["result"]
 
     async def dns_delete(self, zone_id: str, record_id: str) -> None:
         await self._req("DELETE", f"/zones/{zone_id}/dns_records/{record_id}")
@@ -84,16 +94,22 @@ class CloudflareClient:
         return await self._paged(f"/accounts/{account_id}/cfd_tunnel", {"is_deleted": "false"})
 
     async def zone_analytics(self, zone_id: str, since: str) -> dict:
-        query = ("query($z: String!, $d: Date!) { viewer { zones(filter: {zoneTag: $z}) { "
-                 "httpRequests1dGroups(limit: 31, filter: {date_geq: $d}, orderBy: [date_ASC]) { "
-                 "dimensions { date } sum { requests cachedRequests bytes threats pageViews } "
-                 "uniq { uniques } } } } }")
-        body = await self._req("POST", "/graphql",
-                               json={"query": query, "variables": {"z": zone_id, "d": since}})
+        query = (
+            "query($z: String!, $d: Date!) { viewer { zones(filter: {zoneTag: $z}) { "
+            "httpRequests1dGroups(limit: 31, filter: {date_geq: $d}, orderBy: [date_ASC]) { "
+            "dimensions { date } sum { requests cachedRequests bytes threats pageViews } "
+            "uniq { uniques } } } } }"
+        )
+        body = await self._req(
+            "POST", "/graphql", json={"query": query, "variables": {"z": zone_id, "d": since}}
+        )
         if errs := body.get("errors"):
             msg = "; ".join(str(e.get("message", e)) for e in errs if isinstance(e, dict))
-            if any((e.get("extensions") or {}).get("code") == "authz" for e in errs
-                   if isinstance(e, dict)):
+            if any(
+                (e.get("extensions") or {}).get("code") == "authz"
+                for e in errs
+                if isinstance(e, dict)
+            ):
                 raise CloudflarePermissionError(f"graphql: sin permiso ({msg})")
             raise CloudflareError(f"graphql: {msg}")
         zones = ((body.get("data") or {}).get("viewer") or {}).get("zones") or []

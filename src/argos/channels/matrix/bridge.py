@@ -60,8 +60,9 @@ class _Run:
 
 
 class MatrixBridge:
-    def __init__(self, matrix: MatrixClient, core: CoreClient, cfg: BridgeConfig,
-                 db_path: Path) -> None:
+    def __init__(
+        self, matrix: MatrixClient, core: CoreClient, cfg: BridgeConfig, db_path: Path
+    ) -> None:
         self.matrix = matrix
         self.core = core
         self.cfg = cfg
@@ -82,19 +83,23 @@ class MatrixBridge:
         return row[0] if row else None
 
     def _thread_for(self, room_id: str, root: str) -> str | None:
-        row = self.db.execute("SELECT argos_thread FROM threads WHERE room_id=? AND root_event=?",
-                              (room_id, root)).fetchone()
+        row = self.db.execute(
+            "SELECT argos_thread FROM threads WHERE room_id=? AND root_event=?", (room_id, root)
+        ).fetchone()
         return row[0] if row else None
 
     def _approval_by_event(self, event_id: str) -> str | None:
-        row = self.db.execute("SELECT approval_id FROM approvals WHERE event_id=?",
-                              (event_id,)).fetchone()
+        row = self.db.execute(
+            "SELECT approval_id FROM approvals WHERE event_id=?", (event_id,)
+        ).fetchone()
         return row[0] if row else None
 
     def _pending_in_thread(self, room_id: str, root: str) -> str | None:
         row = self.db.execute(
             "SELECT approval_id FROM approvals WHERE room_id=? AND thread_root=?"
-            " ORDER BY created DESC LIMIT 1", (room_id, root)).fetchone()
+            " ORDER BY created DESC LIMIT 1",
+            (room_id, root),
+        ).fetchone()
         return row[0] if row else None
 
     def _spawn(self, coro) -> None:
@@ -143,22 +148,31 @@ class MatrixBridge:
         if room := self._kv(key):
             return room
         room = await self.matrix.create_dm(
-            user_id, topic="Argos · sin cifrar (el bot no soporta E2EE)")
+            user_id, topic="Argos · sin cifrar (el bot no soporta E2EE)"
+        )
         self._kv(key, room)
         log.info("chat directo %s creado con %s", room, user_id)
         await self.matrix.send_text(
-            room, "Hola, soy Argos. Escríbeme aquí una tarea y la haré en un hilo; en el hilo "
-                  "seguimos la conversación y te pediré las aprobaciones. !ayuda para comandos.\n"
-                  "Este chat NO está cifrado a propósito (el bot aún no soporta E2EE); no "
-                  "actives el cifrado o dejaré de leerte.")
+            room,
+            "Hola, soy Argos. Escríbeme aquí una tarea y la haré en un hilo; en el hilo "
+            "seguimos la conversación y te pediré las aprobaciones. !ayuda para comandos.\n"
+            "Este chat NO está cifrado a propósito (el bot aún no soporta E2EE); no "
+            "actives el cifrado o dejaré de leerte.",
+        )
         return room
 
     async def _handle_invites(self, data: dict[str, Any]) -> None:
         for room_id, room in (data.get("rooms", {}).get("invite") or {}).items():
             events = room.get("invite_state", {}).get("events", [])
-            inviter = next((e.get("sender") for e in events
-                            if e.get("type") == "m.room.member"
-                            and e.get("state_key") == self.matrix.user_id), None)
+            inviter = next(
+                (
+                    e.get("sender")
+                    for e in events
+                    if e.get("type") == "m.room.member"
+                    and e.get("state_key") == self.matrix.user_id
+                ),
+                None,
+            )
             if inviter in self.cfg.allowed_users:
                 await self.matrix.join(room_id)
                 log.info("unido a %s por invitación de %s", room_id, inviter)
@@ -175,12 +189,13 @@ class MatrixBridge:
         content = ev.get("content") or {}
         rel = content.get("m.relates_to") or {}
         if ev.get("type") == "m.reaction":
-            if rel.get("rel_type") == "m.annotation" and (aid := self._approval_by_event(
-                    rel.get("event_id", ""))):
+            if rel.get("rel_type") == "m.annotation" and (
+                aid := self._approval_by_event(rel.get("event_id", ""))
+            ):
                 await self._decide(room_id, aid, rel.get("key", ""), sender)
             return
         if content.get("msgtype") not in ("m.text", None) or "m.new_content" in content:
-            return   # ediciones, imágenes, avisos: se ignoran
+            return  # ediciones, imágenes, avisos: se ignoran
         body = (content.get("body") or "").strip()
         if not body:
             return
@@ -200,14 +215,19 @@ class MatrixBridge:
         if self._kv(f"warned:{room_id}"):
             return
         self._kv(f"warned:{room_id}", "1")
-        dm = next((self._kv(f"dm:{u}") for u in self.cfg.allowed_users if self._kv(f"dm:{u}")),
-                  None)
-        where = " Escríbeme en el chat «Argos», que está sin cifrar." if dm and dm != room_id \
-            else ""
+        dm = next(
+            (self._kv(f"dm:{u}") for u in self.cfg.allowed_users if self._kv(f"dm:{u}")), None
+        )
+        where = (
+            " Escríbeme en el chat «Argos», que está sin cifrar." if dm and dm != room_id else ""
+        )
         with contextlib.suppress(MatrixError):
             await self.matrix.send_text(
-                room_id, "🔒 Esta sala está cifrada y no puedo leer tus mensajes (aún no soporto "
-                         "E2EE)." + where, notice=True)
+                room_id,
+                "🔒 Esta sala está cifrada y no puedo leer tus mensajes (aún no soporto "
+                "E2EE)." + where,
+                notice=True,
+            )
 
     # --- tareas ------------------------------------------------------------------------------
 
@@ -218,13 +238,15 @@ class MatrixBridge:
             self.db.execute("INSERT INTO threads VALUES (?,?,?)", (room_id, root, thread))
             self.db.commit()
         try:
-            sid = await self.core.submit(task=task, profile=self.cfg.profile, channel="matrix",
-                                         thread_id=thread)
+            sid = await self.core.submit(
+                task=task, profile=self.cfg.profile, channel="matrix", thread_id=thread
+            )
         except RuntimeError as exc:
             await self.matrix.send_text(room_id, f"⚠️ {exc}", thread_root=root, notice=True)
             return
-        progress = await self.matrix.send_text(room_id, "⏳ trabajando…", thread_root=root,
-                                               notice=True)
+        progress = await self.matrix.send_text(
+            room_id, "⏳ trabajando…", thread_root=root, notice=True
+        )
         run = _Run(sid, room_id, root, progress)
         self.runs[sid] = run
         self._spawn(self._follow(run))
@@ -240,8 +262,7 @@ class MatrixBridge:
                 if line := progress_line(ev, run.session_id):
                     run.lines.append(line)
                     await self._maybe_edit(run)
-                if kind in ("session_end", "stream_end") and \
-                        ev.get("session_id") == run.session_id:
+                if kind in ("session_end", "stream_end") and ev.get("session_id") == run.session_id:
                     final = ev
         finally:
             self.runs.pop(run.session_id, None)
@@ -269,13 +290,16 @@ class MatrixBridge:
         aid = ev["id"]
         if self.db.execute("SELECT 1 FROM approvals WHERE approval_id=?", (aid,)).fetchone():
             return
-        text = (f"🔐 Aprobación necesaria · {ev['action']} (riesgo {ev['risk_class']}, "
-                f"caduca en {ev['timeout_s']} s)\n{ev['details']}\n\n"
-                "Responde «sí» o «no» en este hilo, o reacciona ✅ / ❌.")
+        text = (
+            f"🔐 Aprobación necesaria · {ev['action']} (riesgo {ev['risk_class']}, "
+            f"caduca en {ev['timeout_s']} s)\n{ev['details']}\n\n"
+            "Responde «sí» o «no» en este hilo, o reacciona ✅ / ❌."
+        )
         event_id = await self.matrix.send_text(room_id, text, thread_root=root)
-        self.db.execute("INSERT INTO approvals VALUES (?,?,?,?,?,?)",
-                        (aid, room_id, event_id, root or event_id, ev.get("session_id"),
-                         time.time()))
+        self.db.execute(
+            "INSERT INTO approvals VALUES (?,?,?,?,?,?)",
+            (aid, room_id, event_id, root or event_id, ev.get("session_id"), time.time()),
+        )
         self.db.commit()
 
     async def _decide(self, room_id: str, approval_id: str, answer: str, sender: str) -> None:
@@ -284,14 +308,17 @@ class MatrixBridge:
             return
         decision = "approved" if word in YES else "denied"
         ok = await self.core.decide(approval_id, decision, sender, "matrix")
-        row = self.db.execute("SELECT thread_root FROM approvals WHERE approval_id=?",
-                              (approval_id,)).fetchone()
+        row = self.db.execute(
+            "SELECT thread_root FROM approvals WHERE approval_id=?", (approval_id,)
+        ).fetchone()
         self.db.execute("DELETE FROM approvals WHERE approval_id=?", (approval_id,))
         self.db.commit()
-        msg = (f"{'✅ aprobada' if decision == 'approved' else '❌ denegada'} por {sender}"
-               if ok else "ya estaba resuelta (o caducó)")
-        await self.matrix.send_text(room_id, msg, thread_root=row[0] if row else None,
-                                    notice=True)
+        msg = (
+            f"{'✅ aprobada' if decision == 'approved' else '❌ denegada'} por {sender}"
+            if ok
+            else "ya estaba resuelta (o caducó)"
+        )
+        await self.matrix.send_text(room_id, msg, thread_root=row[0] if row else None, notice=True)
 
     def _report_room(self) -> str | None:
         """Dónde avisar de lo que no nace en Matrix: sala de control o el chat directo."""
@@ -310,13 +337,17 @@ class MatrixBridge:
                     if kind == "approval_request":
                         if self.cfg.notify_room and ev.get("origin_channel") != "matrix":
                             await self._post_approval(ev, self.cfg.notify_room, None)
-                    elif kind == "session" and ev.get("channel") == "scheduler" \
-                            and not ev.get("parent_session_id"):
+                    elif (
+                        kind == "session"
+                        and ev.get("channel") == "scheduler"
+                        and not ev.get("parent_session_id")
+                    ):
                         scheduled.add(ev["session_id"])
                     elif kind == "eval_report" and ev.get("notify", True):
                         if room := self._report_room():
                             await self.matrix.send_text(
-                                room, f"📊 {ev.get('title', 'Evaluación')}\n{ev.get('text', '')}")
+                                room, f"📊 {ev.get('title', 'Evaluación')}\n{ev.get('text', '')}"
+                            )
                     elif kind == "session_end" and ev.get("session_id") in scheduled:
                         scheduled.discard(ev["session_id"])
                         await self._report_scheduled(ev)
@@ -329,8 +360,7 @@ class MatrixBridge:
         if not room:
             return
         sid = ev.get("session_id")
-        sched = next((s for s in await self.core.schedules() if s.get("last_session") == sid),
-                     {})
+        sched = next((s for s in await self.core.schedules() if s.get("last_session") == sid), {})
         if sched and not sched.get("notify", True):
             return
         title = sched.get("title") or sched.get("name") or "tarea programada"
@@ -346,8 +376,10 @@ class MatrixBridge:
         cmd = cmd.lower()
         if cmd in ("estado", "status"):
             st = await self.core.state()
-            text = (f"sesiones en curso: {st['running_sessions']} · aprobaciones pendientes: "
-                    f"{st['pending_approvals']} · kill switch: {st['kill_switch'] or 'no'}")
+            text = (
+                f"sesiones en curso: {st['running_sessions']} · aprobaciones pendientes: "
+                f"{st['pending_approvals']} · kill switch: {st['kill_switch'] or 'no'}"
+            )
         elif cmd in ("kill", "parar"):
             await self.core.kill(arg or f"matrix:{sender}")
             text = "🛑 kill switch activado: todas las sesiones se detienen. `!rearm` para rearmar."
@@ -356,14 +388,21 @@ class MatrixBridge:
             text = "sistema rearmado"
         elif cmd in ("memoria", "memory"):
             items = await self.core.memories(self.cfg.profile)
-            text = "\n".join(f"• {m['content']} ({'tú' if m['provenance'] == 'user' else 'agente'})"
-                             for m in items[:20]) or "(sin memoria)"
+            text = (
+                "\n".join(
+                    f"• {m['content']} ({'tú' if m['provenance'] == 'user' else 'agente'})"
+                    for m in items[:20]
+                )
+                or "(sin memoria)"
+            )
         elif cmd in ("herramientas", "tools"):
             items = await self.core.tools(self.cfg.profile)
             text = "\n".join(f"• {t['name']} ({t['risk']})" for t in items) or "(sin tools)"
         else:
-            text = ("Escríbeme una tarea y la hago en un hilo. En el hilo sigue la conversación.\n"
-                    "!estado · !memoria · !herramientas · !kill <motivo> · !rearm")
+            text = (
+                "Escríbeme una tarea y la hago en un hilo. En el hilo sigue la conversación.\n"
+                "!estado · !memoria · !herramientas · !kill <motivo> · !rearm"
+            )
         await self.matrix.send_text(room_id, text, thread_root=root, notice=True)
 
 
@@ -382,8 +421,12 @@ def progress_line(ev: dict[str, Any], root: str) -> str | None:
         return f"{pad}recordado: {ev.get('detail', '')[:90]}"
     if kind == "approval":
         return f"{pad}aprobación {ev['decision']} ({ev['approver']})"
-    if kind == "error_event" and ev.get("kind") in ("budget_exceeded", "loop_detected",
-                                                    "model_error", "killed",
-                                                    "egress_blocked"):
+    if kind == "error_event" and ev.get("kind") in (
+        "budget_exceeded",
+        "loop_detected",
+        "model_error",
+        "killed",
+        "egress_blocked",
+    ):
         return f"{pad}⚠️ {ev['kind']}: {ev['message'][:100]}"
     return None

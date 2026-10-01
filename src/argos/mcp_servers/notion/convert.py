@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-MAX_TEXT = 2000   # límite de Notion por objeto rich_text
+MAX_TEXT = 2000  # límite de Notion por objeto rich_text
 _INLINE = re.compile(r"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?://[^)\s]+)\)")
 _UUID = re.compile(r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$")
 
@@ -28,6 +28,7 @@ def normalize_id(raw: str) -> str | None:
 
 
 # --------------------------------------------------------------------------- lectura
+
 
 def plain(rich: list[dict] | None) -> str:
     return "".join(r.get("plain_text", "") for r in rich or [])
@@ -91,8 +92,15 @@ def prop_value(prop: dict) -> Any:
         if not v:
             return None
         return v["start"] if not v.get("end") else f"{v['start']} → {v['end']}"
-    if t in ("checkbox", "number", "url", "email", "phone_number", "created_time",
-             "last_edited_time"):
+    if t in (
+        "checkbox",
+        "number",
+        "url",
+        "email",
+        "phone_number",
+        "created_time",
+        "last_edited_time",
+    ):
         return v
     if t == "people":
         return [p.get("name") or p.get("id") for p in v or []]
@@ -105,14 +113,22 @@ def prop_value(prop: dict) -> Any:
 
 def brief(obj: dict) -> dict:
     parent = obj.get("parent") or {}
-    return {"id": obj.get("id"), "type": obj.get("object"), "title": title_of(obj),
-            "url": obj.get("url"), "last_edited": obj.get("last_edited_time"),
-            "parent": parent.get(parent.get("type", ""), parent.get("type"))}
+    return {
+        "id": obj.get("id"),
+        "type": obj.get("object"),
+        "title": title_of(obj),
+        "url": obj.get("url"),
+        "last_edited": obj.get("last_edited_time"),
+        "parent": parent.get(parent.get("type", ""), parent.get("type")),
+    }
 
 
 def row(page: dict) -> dict:
-    return {"id": page.get("id"), "url": page.get("url"),
-            **{k: prop_value(v) for k, v in (page.get("properties") or {}).items()}}
+    return {
+        "id": page.get("id"),
+        "url": page.get("url"),
+        **{k: prop_value(v) for k, v in (page.get("properties") or {}).items()},
+    }
 
 
 def schema(db: dict) -> dict:
@@ -124,14 +140,18 @@ def schema(db: dict) -> dict:
             entry["options"] = [o["name"] for o in p[t].get("options", [])]
         if t == "status":
             entry["options"] = [o["name"] for o in p[t].get("options", [])]
-            entry["groups"] = {g["name"]: [o["name"] for o in p[t]["options"]
-                                           if o["id"] in g.get("option_ids", [])]
-                               for g in p[t].get("groups", [])}
+            entry["groups"] = {
+                g["name"]: [
+                    o["name"] for o in p[t]["options"] if o["id"] in g.get("option_ids", [])
+                ]
+                for g in p[t].get("groups", [])
+            }
         out[name] = entry
     return out
 
 
 # --------------------------------------------------------------------------- escritura
+
 
 def rich(text: str) -> list[dict]:
     """Texto con formato en línea mínimo → rich_text (troceado a 2000 caracteres)."""
@@ -139,7 +159,7 @@ def rich(text: str) -> list[dict]:
 
     def add(content: str, link: str | None = None, **ann: bool) -> None:
         for i in range(0, len(content), MAX_TEXT):
-            item: dict[str, Any] = {"type": "text", "text": {"content": content[i:i + MAX_TEXT]}}
+            item: dict[str, Any] = {"type": "text", "text": {"content": content[i : i + MAX_TEXT]}}
             if link:
                 item["text"]["link"] = {"url": link}
             if ann:
@@ -149,7 +169,7 @@ def rich(text: str) -> list[dict]:
     pos = 0
     for m in _INLINE.finditer(text):
         if m.start() > pos:
-            add(text[pos:m.start()])
+            add(text[pos : m.start()])
         if m.group(1) is not None:
             add(m.group(1), bold=True)
         elif m.group(2) is not None:
@@ -181,10 +201,19 @@ def markdown_to_blocks(md: str) -> list[dict]:
                 code.append(lines[i])
                 i += 1
             text = "\n".join(code)
-            blocks.append({"object": "block", "type": "code", "code": {
-                "rich_text": [{"type": "text", "text": {"content": text[j:j + MAX_TEXT]}}
-                              for j in range(0, max(len(text), 1), MAX_TEXT)],
-                "language": lang}})
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "code",
+                    "code": {
+                        "rich_text": [
+                            {"type": "text", "text": {"content": text[j : j + MAX_TEXT]}}
+                            for j in range(0, max(len(text), 1), MAX_TEXT)
+                        ],
+                        "language": lang,
+                    },
+                }
+            )
         elif not s:
             pass
         elif s in ("---", "***"):
@@ -209,8 +238,9 @@ class PropertyError(ValueError):
     pass
 
 
-def to_notion_props(values: dict[str, Any], schema_props: dict[str, dict],
-                    allow_new_options: bool = False) -> dict:
+def to_notion_props(
+    values: dict[str, Any], schema_props: dict[str, dict], allow_new_options: bool = False
+) -> dict:
     """Valores simples → propiedades Notion según el esquema. Rechaza propiedades desconocidas,
     de solo lectura y (salvo allow_new_options) opciones que no existen en select/status."""
     out: dict[str, Any] = {}
@@ -249,8 +279,11 @@ def to_notion_props(values: dict[str, Any], schema_props: dict[str, dict],
                     raise PropertyError(f"fecha inválida para '{name}' (usa AAAA-MM-DD)")
                 out[name] = {"date": {"start": str(val)}}
         elif t == "checkbox":
-            out[name] = {"checkbox": bool(val) if not isinstance(val, str)
-                         else val.lower() in ("true", "sí", "si", "1", "yes")}
+            out[name] = {
+                "checkbox": bool(val)
+                if not isinstance(val, str)
+                else val.lower() in ("true", "sí", "si", "1", "yes")
+            }
         elif t == "number":
             try:
                 out[name] = {"number": None if val in (None, "") else float(val)}

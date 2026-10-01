@@ -12,8 +12,10 @@ from argos.tools.base import Tool, ToolContext, ToolResult
 
 class InventoryTool(Tool):
     name = "infra.inventory"
-    description = ("Consulta el inventario de infraestructura (servicios, URLs, usuarios, notas). "
-                   "No muestra secretos; solo indica qué credenciales hay configuradas.")
+    description = (
+        "Consulta el inventario de infraestructura (servicios, URLs, usuarios, notas). "
+        "No muestra secretos; solo indica qué credenciales hay configuradas."
+    )
     parameters = {"type": "object", "properties": {}}
     risk_class = RiskClass.READ
     idempotent = True

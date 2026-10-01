@@ -45,9 +45,14 @@ class NasSmb:
             out = []
             for entry in smbclient.scandir(unc):
                 info = entry.stat()
-                out.append({"name": entry.name, "dir": entry.is_dir(),
-                            "size": 0 if entry.is_dir() else info.st_size,
-                            "mtime": int(info.st_mtime)})
+                out.append(
+                    {
+                        "name": entry.name,
+                        "dir": entry.is_dir(),
+                        "size": 0 if entry.is_dir() else info.st_size,
+                        "mtime": int(info.st_mtime),
+                    }
+                )
             return sorted(out, key=lambda e: (not e["dir"], e["name"].lower()))[:1000]
         except Exception as exc:  # noqa: BLE001
             raise NasError(f"SMB list {path}: {exc}") from exc
@@ -79,7 +84,7 @@ class NasSmb:
         unc, _ = _unc(self.host, path)
         try:
             info = smbclient.stat(unc)
-            if info.st_mode & 0o40000:                    # directorio: solo si está vacío
+            if info.st_mode & 0o40000:  # directorio: solo si está vacío
                 smbclient.rmdir(unc)
             else:
                 smbclient.remove(unc)
@@ -112,12 +117,14 @@ async def snmp_storage(host: str, community: str) -> list[dict]:
         raise NasError(f"SNMP {host}: {exc}") from exc
     rows = []
     for idx, raw in descr.items():
-        name = bytes(raw).decode(errors="replace") if isinstance(raw, bytes | bytearray) \
-            else str(raw)
+        name = (
+            bytes(raw).decode(errors="replace") if isinstance(raw, bytes | bytearray) else str(raw)
+        )
         u = int(unit.get(idx, 0) or 0)
         total = int(size.get(idx, 0) or 0) * u
         use = int(used.get(idx, 0) or 0) * u
         if total:
-            rows.append({"name": name, "total": total, "used": use,
-                         "percent": round(100 * use / total)})
+            rows.append(
+                {"name": name, "total": total, "used": use, "percent": round(100 * use / total)}
+            )
     return rows

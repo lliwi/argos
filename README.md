@@ -18,6 +18,20 @@ uv run argos audit replay <session_id>
 uv run argos eval run golden    # tareas doradas (FakeProvider por defecto)
 ```
 
+## CI local
+Sin remoto ni runner: `scripts/ci.sh` ejecuta `ruff check`, `ruff format --check`, `pytest` y
+`eval run golden` con el
+proveedor simulado (~4 min, sin coste de modelo) y resume al final; sale con 1 si falla algún paso
+(`--no-eval` omite la suite). Las tareas de sandbox de `golden` necesitan el broker en marcha; sin
+él se omiten. Hooks versionados en `scripts/git-hooks/`:
+```bash
+git config core.hooksPath scripts/git-hooks   # una vez
+```
+- `pre-commit`: `ruff check` y `ruff format --check` de los `.py` preparados (segundos).
+- `pre-push`: `scripts/ci.sh` completo.
+
+Ambos se saltan con `--no-verify`. Si falla el formato: `uv run ruff format .`
+
 ## Ejecución en contenedor (segmentada)
 Cada segmento de seguridad (`main`, `osint`, `pentest`) tiene núcleo, red de sandbox, proxy de
 egress y datos propios ([ADR-0008](docs/adr/0008-segmentacion-por-contenedor.md)).

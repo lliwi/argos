@@ -40,18 +40,23 @@ def _size(path: Path) -> int:
     return sum(p.stat().st_size for p in path.rglob("*") if p.is_file()) if path.exists() else 0
 
 
-def purge(cfg: Config, store: AuditStore, now: datetime | None = None,
-          dry_run: bool = False) -> PurgeReport:
+def purge(
+    cfg: Config, store: AuditStore, now: datetime | None = None, dry_run: bool = False
+) -> PurgeReport:
     now = now or datetime.now(UTC)
     report = PurgeReport()
     rows = store.db.execute(
-        "SELECT id, profile, status, started_at, ended_at FROM sessions").fetchall()
+        "SELECT id, profile, status, started_at, ended_at FROM sessions"
+    ).fetchall()
     for sid, profile, status, started, ended in rows:
         if status == "running":
             continue
         prof = cfg.profiles.get(profile)
-        days = (prof.retention_days if prof and prof.retention_days is not None
-                else cfg.audit.retention_days)
+        days = (
+            prof.retention_days
+            if prof and prof.retention_days is not None
+            else cfg.audit.retention_days
+        )
         if datetime.fromisoformat(ended or started) > now - timedelta(days=days):
             continue
         report.sessions.append(sid)
@@ -69,21 +74,32 @@ def purge(cfg: Config, store: AuditStore, now: datetime | None = None,
             store.db.execute("DELETE FROM sessions WHERE id=?", (sid,))
             store.db.commit()
         with open(cfg.data_path / "purge.jsonl", "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"ts": now.isoformat(), "session_id": sid, "profile": profile,
-                                 "retention_days": days}) + "\n")
+            fh.write(
+                json.dumps(
+                    {
+                        "ts": now.isoformat(),
+                        "session_id": sid,
+                        "profile": profile,
+                        "retention_days": days,
+                    }
+                )
+                + "\n"
+            )
 
     # Memoria del agente: solo caduca en perfiles con retención explícita (osint: datos de
     # terceros, RF-LEG-03). La retención de auditoría no aplica: olvidar tu entorno no es
     # minimización, es perder utilidad. Las tuyas solo caducan si les pones fecha.
-    retention = {name: p.retention_days for name, p in cfg.profiles.items()
-                 if p.retention_days is not None}
+    retention = {
+        name: p.retention_days for name, p in cfg.profiles.items() if p.retention_days is not None
+    }
     state_db = cfg.data_path / "state.db"
     if state_db.exists() and not dry_run:
         report.memories = StateStore(state_db).purge_memories(retention, now)
 
     # Recolección de blobs huérfanos: los que ningún evento restante referencia.
-    referenced = {m for (data,) in store.db.execute("SELECT data FROM events")
-                  for m in _REF.findall(data)}
+    referenced = {
+        m for (data,) in store.db.execute("SELECT data FROM events") for m in _REF.findall(data)
+    }
     for blob in store.blob_dir.glob("*/*"):
         if blob.name not in referenced:
             report.blobs += 1
@@ -110,8 +126,10 @@ def age_recipient(cfg: Config) -> str | None:
 def backup(cfg: Config, store: AuditStore, encrypt: bool = True) -> Path:
     recipient = age_recipient(cfg) if encrypt else None
     if encrypt and (recipient is None or shutil.which("age") is None):
-        raise BackupError("sin cifrado disponible (falta `age` o .sops.yaml con clave age; "
-                          "ejecuta scripts/init-secrets.sh) — usa --no-encrypt bajo tu criterio")
+        raise BackupError(
+            "sin cifrado disponible (falta `age` o .sops.yaml con clave age; "
+            "ejecuta scripts/init-secrets.sh) — usa --no-encrypt bajo tu criterio"
+        )
     out_dir = cfg.data_path / "backups"
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -119,7 +137,7 @@ def backup(cfg: Config, store: AuditStore, encrypt: bool = True) -> Path:
         snapshot = Path(tmp) / "argos.db"
         dst = sqlite3.connect(snapshot)
         with store._lock:
-            store.db.backup(dst)   # copia consistente aunque haya escrituras en curso
+            store.db.backup(dst)  # copia consistente aunque haya escrituras en curso
         dst.close()
         tarball = Path(tmp) / f"argos-{cfg.segment}-{stamp}.tar.gz"
         with tarfile.open(tarball, "w:gz") as tar:
@@ -133,8 +151,9 @@ def backup(cfg: Config, store: AuditStore, encrypt: bool = True) -> Path:
             shutil.move(tarball, final)
             return final
         final = out_dir / (tarball.name + ".age")
-        proc = subprocess.run(["age", "-r", recipient, "-o", str(final), str(tarball)],
-                              capture_output=True, text=True)
+        proc = subprocess.run(
+            ["age", "-r", recipient, "-o", str(final), str(tarball)], capture_output=True, text=True
+        )
         if proc.returncode != 0:
             raise BackupError(f"age falló: {proc.stderr.strip()[:300]}")
         return final

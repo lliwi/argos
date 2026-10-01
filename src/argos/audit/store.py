@@ -71,8 +71,16 @@ class AuditStore:
                 self.db.execute(
                     "INSERT INTO sessions(id, parent_session_id, profile, channel, task, model,"
                     " status, started_at) VALUES (?,?,?,?,?,?,?,?)",
-                    (event.session_id, event.parent_session_id, event.agent_profile,
-                     event.channel, data["task"], event.model, "running", data["ts"]),
+                    (
+                        event.session_id,
+                        event.parent_session_id,
+                        event.agent_profile,
+                        event.channel,
+                        data["task"],
+                        event.model,
+                        "running",
+                        data["ts"],
+                    ),
                 )
             elif isinstance(event, SessionEnded):
                 self.db.execute(
@@ -109,7 +117,9 @@ class AuditStore:
         with self._lock:
             self.db.execute(
                 "INSERT INTO control(key, value) VALUES (?,?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
             self.db.commit()
 
     def get_control(self, key: str) -> str | None:
@@ -130,17 +140,24 @@ class AuditStore:
     def sessions(self, limit: int = 20) -> list[dict[str, Any]]:
         cur = self.db.execute(
             "SELECT id, parent_session_id, profile, channel, task, model, status, started_at,"
-            " ended_at FROM sessions ORDER BY started_at DESC LIMIT ?", (limit,))
+            " ended_at FROM sessions ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        )
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, row, strict=True)) for row in cur]
 
     def children(self, session_id: str) -> list[str]:
-        return [r[0] for r in self.db.execute(
-            "SELECT id FROM sessions WHERE parent_session_id=?", (session_id,))]
+        return [
+            r[0]
+            for r in self.db.execute(
+                "SELECT id FROM sessions WHERE parent_session_id=?", (session_id,)
+            )
+        ]
 
     def resolve_session(self, prefix: str) -> str:
         rows = self.db.execute(
-            "SELECT id FROM sessions WHERE id LIKE ?", (prefix + "%",)).fetchall()
+            "SELECT id FROM sessions WHERE id LIKE ?", (prefix + "%",)
+        ).fetchall()
         if len(rows) != 1:
             raise KeyError(f"prefijo de sesión {prefix!r} ambiguo o inexistente ({len(rows)})")
         return rows[0][0]

@@ -19,7 +19,9 @@ def _write_inv(root, body):
 
 
 def test_inventory_secrets_redacted_and_hidden(tmp_path):
-    _write_inv(tmp_path, """
+    _write_inv(
+        tmp_path,
+        """
 services:
   portainer:
     url: http://192.168.0.20:9000
@@ -27,7 +29,8 @@ services:
     username: admin
     api_key: "ptr_SECRETO_123456"
     notes: "NAS"
-""")
+""",
+    )
     red = Redactor()
     inv = load_inventory(tmp_path, red)
     assert inv.get("portainer")["url"] == "http://192.168.0.20:9000"
@@ -67,15 +70,25 @@ async def test_portainer_rest_client():
     def handler(request):
         calls.append((request.method, request.url.path))
         if request.url.path.endswith("/containers/json"):
-            return httpx.Response(200, json=[{"Id": "abc123def456", "Names": ["/web"],
-                                              "Image": "nginx", "State": "running",
-                                              "Status": "Up 2h"}])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "Id": "abc123def456",
+                        "Names": ["/web"],
+                        "Image": "nginx",
+                        "State": "running",
+                        "Status": "Up 2h",
+                    }
+                ],
+            )
         if request.url.path.endswith("/restart"):
             return httpx.Response(204)
         return httpx.Response(200, json={})
 
-    client = PortainerClient("http://portainer:9000", "k", endpoint=2,
-                             transport=httpx.MockTransport(handler))
+    client = PortainerClient(
+        "http://portainer:9000", "k", endpoint=2, transport=httpx.MockTransport(handler)
+    )
     conts = await client.containers()
     assert conts[0]["Names"] == ["/web"]
     await client.container_action("abc123", "restart")
@@ -85,8 +98,12 @@ async def test_portainer_rest_client():
 
 
 def _env(monkeypatch, url="http://portainer:9000", key="k", dry="0"):
-    for name, val in {"ARGOS_PORTAINER_URL": url, "ARGOS_PORTAINER_KEY": key,
-                      "ARGOS_PORTAINER_ENDPOINT": "1", "ARGOS_PORTAINER_DRY_RUN": dry}.items():
+    for name, val in {
+        "ARGOS_PORTAINER_URL": url,
+        "ARGOS_PORTAINER_KEY": key,
+        "ARGOS_PORTAINER_ENDPOINT": "1",
+        "ARGOS_PORTAINER_DRY_RUN": dry,
+    }.items():
         monkeypatch.setenv(name, val)
 
 
@@ -124,39 +141,58 @@ async def test_infra_session_inventory_and_portainer_risk(root, store, fake_sand
     from argos.governance.approval import ScriptedApprover
     from argos.model.fake import FakeProvider
 
-    _write_inv(root, """
+    _write_inv(
+        root,
+        """
 services:
   portainer:
     url: http://192.168.0.20:9000
     endpoint: 1
     api_key: "ptr_CANARIO_998877"
     notes: "NAS de casa"
-""")
-    cfg = load_config(root, {"data_dir": str(root / "var")})   # segmento main; infra permitido
+""",
+    )
+    cfg = load_config(root, {"data_dir": str(root / "var")})  # segmento main; infra permitido
 
     def p(tool, **a):
         return {"type": "tool_call", "tool": tool, "args": a}
 
     # dry-run explícito: la acción no se ejecuta y no pide aprobación.
-    prov = FakeProvider([p("infra.inventory"), p("portainer.stop_container", container_id="web"),
-                         {"type": "final", "message": "ok"}])
-    res = await run_session(SessionOptions(task="mira mi infra", profile="infra", dry_run=True),
-                            cfg, prov, store=store, sandbox_factory=lambda: fake_sandbox)
+    prov = FakeProvider(
+        [
+            p("infra.inventory"),
+            p("portainer.stop_container", container_id="web"),
+            {"type": "final", "message": "ok"},
+        ]
+    )
+    res = await run_session(
+        SessionOptions(task="mira mi infra", profile="infra", dry_run=True),
+        cfg,
+        prov,
+        store=store,
+        sandbox_factory=lambda: fake_sandbox,
+    )
     calls = store.events(res.session_id, ["tool_call"])
     inv_call = next(c for c in calls if c.tool == "infra.inventory")
     assert "192.168.0.20" in inv_call.result_preview and "NAS de casa" in inv_call.result_preview
-    assert "ptr_CANARIO_998877" not in inv_call.result_preview        # secreto oculto
+    assert "ptr_CANARIO_998877" not in inv_call.result_preview  # secreto oculto
     stop = next(c for c in calls if c.tool == "portainer.stop_container")
     assert stop.risk_class.value == "destructive" and "dry-run" in stop.result_preview.lower()
     # el secreto del inventario nunca aparece en el prompt del modelo
     assert "ptr_CANARIO_998877" not in prov.requests[-1].render()
 
     # sin dry-run: parar un contenedor exige aprobación (RF-GOV-04); denegada => no se ejecuta.
-    prov2 = FakeProvider([p("portainer.stop_container", container_id="web"),
-                          {"type": "final", "message": "ok"}])
+    prov2 = FakeProvider(
+        [p("portainer.stop_container", container_id="web"), {"type": "final", "message": "ok"}]
+    )
     res2 = await run_session(
-        SessionOptions(task="para web", profile="infra", dry_run=False), cfg, prov2, store=store,
-        approver=ScriptedApprover(["denied"]), sandbox_factory=lambda: fake_sandbox)
+        SessionOptions(task="para web", profile="infra", dry_run=False),
+        cfg,
+        prov2,
+        store=store,
+        approver=ScriptedApprover(["denied"]),
+        sandbox_factory=lambda: fake_sandbox,
+    )
     appr = store.events(res2.session_id, ["approval"])
     assert appr and appr[0].risk_class.value == "destructive" and appr[0].decision == "denied"
 
@@ -167,16 +203,22 @@ async def test_homeassistant_rest_client():
     def handler(request):
         calls.append((request.method, request.url.path))
         if request.url.path == "/api/states":
-            return httpx.Response(200, json=[
-                {"entity_id": "light.salon", "state": "off",
-                 "attributes": {"friendly_name": "Salón"}},
-                {"entity_id": "sensor.temp", "state": "21.5", "attributes": {}}])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "entity_id": "light.salon",
+                        "state": "off",
+                        "attributes": {"friendly_name": "Salón"},
+                    },
+                    {"entity_id": "sensor.temp", "state": "21.5", "attributes": {}},
+                ],
+            )
         return httpx.Response(200, json={"ok": True})
 
     from argos.mcp_servers.homeassistant.rest import HomeAssistantClient
 
-    client = HomeAssistantClient("http://ha:8123", "tok",
-                                 transport=httpx.MockTransport(handler))
+    client = HomeAssistantClient("http://ha:8123", "tok", transport=httpx.MockTransport(handler))
     states = await client.states()
     assert states[0]["entity_id"] == "light.salon"
     await client.call_service("light", "turn_on", "light.salon")
@@ -185,8 +227,11 @@ async def test_homeassistant_rest_client():
 
 
 def _ha_env(monkeypatch, url="http://ha:8123", token="tok", dry="0"):
-    for name, val in {"ARGOS_HA_URL": url, "ARGOS_HA_TOKEN": token,
-                      "ARGOS_HA_DRY_RUN": dry}.items():
+    for name, val in {
+        "ARGOS_HA_URL": url,
+        "ARGOS_HA_TOKEN": token,
+        "ARGOS_HA_DRY_RUN": dry,
+    }.items():
         monkeypatch.setenv(name, val)
 
 

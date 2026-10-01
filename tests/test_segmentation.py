@@ -12,9 +12,14 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICES = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
-SEGMENT = {"core": "main", "daemon": "main", "matrix": "main", "core-osint": "osint",
-           "core-pentest": "pentest"}
-NEEDS_SECRETS = {"core", "daemon"}            # inventario y SOPS: solo el núcleo de main
+SEGMENT = {
+    "core": "main",
+    "daemon": "main",
+    "matrix": "main",
+    "core-osint": "osint",
+    "core-pentest": "pentest",
+}
+NEEDS_SECRETS = {"core", "daemon"}  # inventario y SOPS: solo el núcleo de main
 
 
 def _mounts(name: str) -> tuple[set[str], set[str]]:
@@ -30,7 +35,7 @@ def _mounts(name: str) -> tuple[set[str], set[str]]:
 def test_secrets_only_visible_to_main_core():
     for name in SEGMENT:
         binds, tmpfs = _mounts(name)
-        assert "${ARGOS_DIR}" in binds, name                       # repo en solo lectura
+        assert "${ARGOS_DIR}" in binds, name  # repo en solo lectura
         hidden = "${ARGOS_DIR}/secrets" in tmpfs
         assert hidden == (name not in NEEDS_SECRETS), f"{name}: secrets/ mal expuesto"
 
@@ -51,7 +56,7 @@ def test_no_network_shared_between_segments():
         nets_by_seg[seg].update(SERVICES[f"egress-{seg}"].get("networks") or [])
     segs = list(nets_by_seg)
     for i, a in enumerate(segs):
-        for b in segs[i + 1:]:
+        for b in segs[i + 1 :]:
             assert not nets_by_seg[a] & nets_by_seg[b], f"{a} y {b} comparten red"
 
 

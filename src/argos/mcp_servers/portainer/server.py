@@ -30,16 +30,20 @@ server = MCPServer(name="portainer", version=VERSION)
 
 def _configured() -> str | None:
     if not os.environ.get("ARGOS_PORTAINER_URL") or not os.environ.get("ARGOS_PORTAINER_KEY"):
-        return ("Portainer no está configurado: falta url o api_key en secrets/inventory.yaml "
-                "(servicio 'portainer'). Pídeselo al usuario o revisa el inventario.")
+        return (
+            "Portainer no está configurado: falta url o api_key en secrets/inventory.yaml "
+            "(servicio 'portainer'). Pídeselo al usuario o revisa el inventario."
+        )
     return None
 
 
 def _client() -> PortainerClient:
     return PortainerClient(
-        os.environ["ARGOS_PORTAINER_URL"], os.environ["ARGOS_PORTAINER_KEY"],
+        os.environ["ARGOS_PORTAINER_URL"],
+        os.environ["ARGOS_PORTAINER_KEY"],
         endpoint=int(os.environ.get("ARGOS_PORTAINER_ENDPOINT", "1")),
-        verify=os.environ.get("ARGOS_PORTAINER_VERIFY", "1") != "0")
+        verify=os.environ.get("ARGOS_PORTAINER_VERIFY", "1") != "0",
+    )
 
 
 def _dry_run() -> bool:
@@ -52,8 +56,11 @@ async def _read(fn_name: str, *args) -> str:
     client = _client()
     try:
         result = await getattr(client, fn_name)(*args)
-        return json.dumps(result, ensure_ascii=False, indent=2)[:12000] \
-            if not isinstance(result, str) else result[:12000]
+        return (
+            json.dumps(result, ensure_ascii=False, indent=2)[:12000]
+            if not isinstance(result, str)
+            else result[:12000]
+        )
     except PortainerError as exc:
         return f"ERROR: {exc}"
     finally:
@@ -68,8 +75,16 @@ async def list_containers() -> str:
     client = _client()
     try:
         data = await client.containers()
-        brief = [{"id": c.get("Id", "")[:12], "names": c.get("Names"), "image": c.get("Image"),
-                  "state": c.get("State"), "status": c.get("Status")} for c in data]
+        brief = [
+            {
+                "id": c.get("Id", "")[:12],
+                "names": c.get("Names"),
+                "image": c.get("Image"),
+                "state": c.get("State"),
+                "status": c.get("Status"),
+            }
+            for c in data
+        ]
         return json.dumps(brief, ensure_ascii=False, indent=2)[:12000]
     except PortainerError as exc:
         return f"ERROR: {exc}"

@@ -11,8 +11,16 @@ from typing import Any
 import httpx
 
 # Categorías Torznab habituales (nombre amigable → id).
-CATEGORIES = {"movies": 2000, "music": 3000, "audio": 3000, "tv": 5000, "series": 5000,
-              "books": 7000, "book": 7000, "other": 8000}
+CATEGORIES = {
+    "movies": 2000,
+    "music": 3000,
+    "audio": 3000,
+    "tv": 5000,
+    "series": 5000,
+    "books": 7000,
+    "book": 7000,
+    "other": 8000,
+}
 
 
 class MediaError(RuntimeError):
@@ -20,12 +28,16 @@ class MediaError(RuntimeError):
 
 
 class JackettClient:
-    def __init__(self, base_url: str, api_key: str, timeout: float = 60,
-                 transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        timeout: float = 60,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._key = api_key
-        self._http = httpx.AsyncClient(timeout=timeout, transport=transport,
-                                       follow_redirects=True)
+        self._http = httpx.AsyncClient(timeout=timeout, transport=transport, follow_redirects=True)
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -48,8 +60,14 @@ class JackettClient:
 
 
 class TransmissionClient:
-    def __init__(self, base_url: str, username: str = "", password: str = "", timeout: float = 30,
-                 transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        username: str = "",
+        password: str = "",
+        timeout: float = 30,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._url = base_url.rstrip("/") + "/transmission/rpc"
         auth = (username, password) if username else None
         self._http = httpx.AsyncClient(timeout=timeout, transport=transport, auth=auth)
@@ -62,11 +80,12 @@ class TransmissionClient:
         payload = {"method": method, "arguments": arguments or {}}
         for _ in range(2):
             try:
-                r = await self._http.post(self._url, json=payload,
-                                          headers={"X-Transmission-Session-Id": self._session_id})
+                r = await self._http.post(
+                    self._url, json=payload, headers={"X-Transmission-Session-Id": self._session_id}
+                )
             except httpx.HTTPError as exc:
                 raise MediaError(f"no se pudo contactar con Transmission: {exc}") from exc
-            if r.status_code == 409:   # handshake: guarda el session id y reintenta
+            if r.status_code == 409:  # handshake: guarda el session id y reintenta
                 self._session_id = r.headers.get("X-Transmission-Session-Id", "")
                 continue
             if r.status_code >= 400:
@@ -78,8 +97,10 @@ class TransmissionClient:
         raise MediaError("Transmission: handshake de sesión fallido")
 
     async def torrents(self) -> list[dict]:
-        args = await self._rpc("torrent-get", {"fields": [
-            "id", "name", "percentDone", "status", "rateDownload", "totalSize", "eta"]})
+        args = await self._rpc(
+            "torrent-get",
+            {"fields": ["id", "name", "percentDone", "status", "rateDownload", "totalSize", "eta"]},
+        )
         return args.get("torrents", [])
 
     async def add(self, link: str) -> dict[str, Any]:
@@ -88,7 +109,8 @@ class TransmissionClient:
 
     async def action(self, torrent_id: int, action: str, delete_data: bool = False) -> None:
         if action == "remove":
-            await self._rpc("torrent-remove", {"ids": [torrent_id],
-                                               "delete-local-data": delete_data})
+            await self._rpc(
+                "torrent-remove", {"ids": [torrent_id], "delete-local-data": delete_data}
+            )
         else:
             await self._rpc(f"torrent-{action}", {"ids": [torrent_id]})  # start | stop

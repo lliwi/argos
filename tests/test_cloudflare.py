@@ -8,10 +8,21 @@ import httpx
 
 from argos.mcp_servers.cloudflare.rest import CloudflareClient
 
-ZONE = {"id": "z" * 32, "name": "ejemplo.com", "status": "active", "plan": {"name": "Free"},
-        "account": {"id": "a" * 32}}
-REC = {"id": "1" * 32, "type": "CNAME", "name": "app.ejemplo.com",
-       "content": "abc.cfargotunnel.com", "proxied": True, "ttl": 1}
+ZONE = {
+    "id": "z" * 32,
+    "name": "ejemplo.com",
+    "status": "active",
+    "plan": {"name": "Free"},
+    "account": {"id": "a" * 32},
+}
+REC = {
+    "id": "1" * 32,
+    "type": "CNAME",
+    "name": "app.ejemplo.com",
+    "content": "abc.cfargotunnel.com",
+    "proxied": True,
+    "ttl": 1,
+}
 
 
 def _env(monkeypatch, dry="0"):
@@ -28,14 +39,22 @@ def _fake(monkeypatch, handler):
         calls.append(req)
         return handler(req)
 
-    monkeypatch.setattr(cf, "_client", lambda: CloudflareClient(
-        "tok", transport=httpx.MockTransport(wrapped)))
+    monkeypatch.setattr(
+        cf, "_client", lambda: CloudflareClient("tok", transport=httpx.MockTransport(wrapped))
+    )
     return calls
 
 
 def _ok(result, pages=1):
-    return httpx.Response(200, json={"success": True, "errors": [], "result": result,
-                                     "result_info": {"total_pages": pages}})
+    return httpx.Response(
+        200,
+        json={
+            "success": True,
+            "errors": [],
+            "result": result,
+            "result_info": {"total_pages": pages},
+        },
+    )
 
 
 def _routes(req: httpx.Request) -> httpx.Response:
@@ -51,8 +70,14 @@ def _routes(req: httpx.Request) -> httpx.Response:
     if path.endswith(f"/dns_records/{REC['id']}") and req.method == "DELETE":
         return _ok({"id": REC["id"]})
     if path.endswith("/cfd_tunnel"):
-        return httpx.Response(403, json={"success": False, "result": None, "errors": [
-            {"code": 9109, "message": "Unauthorized to access requested resource"}]})
+        return httpx.Response(
+            403,
+            json={
+                "success": False,
+                "result": None,
+                "errors": [{"code": 9109, "message": "Unauthorized to access requested resource"}],
+            },
+        )
     return httpx.Response(404, json={"success": False, "errors": [{"code": 7000}]})
 
 
@@ -86,8 +111,13 @@ async def test_dns_list_and_create(monkeypatch):
     out = await cf.dns_create("ejemplo.com", "A", "nas", "203.0.113.7", proxied=True)
     assert "Registro creado" in out
     body = json.loads(next(c for c in calls if c.method == "POST").content)
-    assert body == {"type": "A", "name": "nas.ejemplo.com", "content": "203.0.113.7", "ttl": 1,
-                    "proxied": True}
+    assert body == {
+        "type": "A",
+        "name": "nas.ejemplo.com",
+        "content": "203.0.113.7",
+        "ttl": 1,
+        "proxied": True,
+    }
     assert all(c.headers["authorization"] == "Bearer tok" for c in calls)
 
 
@@ -121,11 +151,11 @@ async def test_dns_update_and_delete(monkeypatch):
 
     _env(monkeypatch)
     calls = _fake(monkeypatch, _routes)
-    assert "Registro actualizado" in await cf.dns_update("ejemplo.com", REC["id"],
-                                                         proxied="false")
+    assert "Registro actualizado" in await cf.dns_update("ejemplo.com", REC["id"], proxied="false")
     assert json.loads(next(c for c in calls if c.method == "PATCH").content) == {"proxied": False}
-    assert "Registro borrado: CNAME app.ejemplo.com" in await cf.dns_delete("ejemplo.com",
-                                                                            REC["id"])
+    assert "Registro borrado: CNAME app.ejemplo.com" in await cf.dns_delete(
+        "ejemplo.com", REC["id"]
+    )
 
 
 async def test_missing_permission_is_explained(monkeypatch):

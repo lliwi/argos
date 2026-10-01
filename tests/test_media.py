@@ -11,14 +11,20 @@ async def test_jackett_search_sorts_by_seeders():
     def handler(request):
         assert "/api/v2.0/indexers/all/results" in request.url.path
         assert request.url.params.get("Query") == "linux"
-        return httpx.Response(200, json={"Results": [
-            {"Title": "A", "Seeders": 3, "Size": 100, "MagnetUri": "magnet:?a"},
-            {"Title": "B", "Seeders": 50, "Size": 200, "MagnetUri": "magnet:?b"}]})
+        return httpx.Response(
+            200,
+            json={
+                "Results": [
+                    {"Title": "A", "Seeders": 3, "Size": 100, "MagnetUri": "magnet:?a"},
+                    {"Title": "B", "Seeders": 50, "Size": 200, "MagnetUri": "magnet:?b"},
+                ]
+            },
+        )
 
     c = JackettClient("http://jk:9117", "k", transport=httpx.MockTransport(handler))
     res = await c.search("linux")
     await c.aclose()
-    assert [r["Title"] for r in res] == ["A", "B"]     # el cliente no ordena; lo hace el server
+    assert [r["Title"] for r in res] == ["A", "B"]  # el cliente no ordena; lo hace el server
 
 
 async def test_transmission_409_handshake_and_add():
@@ -31,8 +37,10 @@ async def test_transmission_409_handshake_and_add():
             return httpx.Response(409, headers={"X-Transmission-Session-Id": "SID-123"})
         assert request.headers.get("X-Transmission-Session-Id") == "SID-123"
         if "torrent-add" in body:
-            return httpx.Response(200, json={"result": "success",
-                                 "arguments": {"torrent-added": {"id": 7, "name": "x"}}})
+            return httpx.Response(
+                200,
+                json={"result": "success", "arguments": {"torrent-added": {"id": 7, "name": "x"}}},
+            )
         return httpx.Response(200, json={"result": "success", "arguments": {"torrents": []}})
 
     c = TransmissionClient("http://tr:9091", transport=httpx.MockTransport(handler))
@@ -53,10 +61,10 @@ async def test_media_add_validates_input(monkeypatch):
 
     _env(monkeypatch, dry="0")
     m._LAST.clear()
-    assert "RECHAZADO" in await m.add()                       # ni index ni link
-    assert "RECHAZADO" in await m.add(link="file:///etc/passwd")   # no magnet
+    assert "RECHAZADO" in await m.add()  # ni index ni link
+    assert "RECHAZADO" in await m.add(link="file:///etc/passwd")  # no magnet
     assert "RECHAZADO" in await m.add(link="http://jk/dl?apikey=x")  # http suelto: usar index
-    assert "RECHAZADO" in await m.add(index=1)                # sin búsqueda previa
+    assert "RECHAZADO" in await m.add(index=1)  # sin búsqueda previa
 
 
 async def test_media_add_by_index_resolves_link_serverside(monkeypatch):
@@ -67,7 +75,7 @@ async def test_media_add_by_index_resolves_link_serverside(monkeypatch):
     m._LAST[:] = [{"title": "Peli", "link": "http://jk:9117/dl/x?jackett_apikey=REAL&file=Peli"}]
     out = await m.add(index=1)
     assert "[dry-run]" in out and "Peli" in out
-    assert "RECHAZADO" in await m.add(index=9)                # fuera de rango
+    assert "RECHAZADO" in await m.add(index=9)  # fuera de rango
 
 
 async def test_media_dry_run_magnet_and_control(monkeypatch):

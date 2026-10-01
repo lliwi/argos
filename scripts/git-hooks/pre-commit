@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Rápido (segundos): lint de los .py preparados para el commit. Saltar: git commit --no-verify
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+((${#files[@]})) || exit 0
+uv run ruff check "${files[@]}"
+uv run ruff format --check "${files[@]}"

@@ -33,14 +33,19 @@ server = MCPServer(name="homeassistant", version=VERSION)
 
 def _configured() -> str | None:
     if not os.environ.get("ARGOS_HA_URL") or not os.environ.get("ARGOS_HA_TOKEN"):
-        return ("Home Assistant no está configurado: falta url o token en secrets/inventory.yaml "
-                "(servicio 'homeassistant').")
+        return (
+            "Home Assistant no está configurado: falta url o token en secrets/inventory.yaml "
+            "(servicio 'homeassistant')."
+        )
     return None
 
 
 def _client() -> HomeAssistantClient:
-    return HomeAssistantClient(os.environ["ARGOS_HA_URL"], os.environ["ARGOS_HA_TOKEN"],
-                               verify=os.environ.get("ARGOS_HA_VERIFY", "1") != "0")
+    return HomeAssistantClient(
+        os.environ["ARGOS_HA_URL"],
+        os.environ["ARGOS_HA_TOKEN"],
+        verify=os.environ.get("ARGOS_HA_VERIFY", "1") != "0",
+    )
 
 
 def _dry_run() -> bool:
@@ -58,10 +63,15 @@ async def list_entities(domain: str = "") -> str:
     client = _client()
     try:
         data = await client.states()
-        brief = [{"entity_id": e.get("entity_id"), "state": e.get("state"),
-                  "name": (e.get("attributes") or {}).get("friendly_name")}
-                 for e in data
-                 if not domain or str(e.get("entity_id", "")).startswith(f"{domain}.")]
+        brief = [
+            {
+                "entity_id": e.get("entity_id"),
+                "state": e.get("state"),
+                "name": (e.get("attributes") or {}).get("friendly_name"),
+            }
+            for e in data
+            if not domain or str(e.get("entity_id", "")).startswith(f"{domain}.")
+        ]
         return json.dumps(brief, ensure_ascii=False, indent=2)[:12000]
     except HomeAssistantError as exc:
         return f"ERROR: {exc}"

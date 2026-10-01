@@ -38,8 +38,13 @@ class Broker:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def record(self, segment: str, op: str, sid: str | None, **extra: Any) -> None:
-        entry = {"ts": datetime.now(UTC).isoformat(), "segment": segment, "op": op,
-                 "session_id": sid, **extra}
+        entry = {
+            "ts": datetime.now(UTC).isoformat(),
+            "segment": segment,
+            "op": op,
+            "session_id": sid,
+            **extra,
+        }
         with open(self.log_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
@@ -53,14 +58,19 @@ class Broker:
                 ws = policy.workspace(self.cfg.base_path / "segments" / segment, sid)
                 extra = policy.domains(req.get("allow_extra"))
                 box = DockerSandbox(
-                    session_id=sid, workspace=ws, cfg=self.cfg.sandbox,
-                    policy=self.egress[segment], network=self.cfg.segment_network(segment),
-                    proxy_url=self.cfg.segment_proxy(segment), segment=segment,
-                    allowlist_extra=extra, env=policy.env(req.get("env")))
+                    session_id=sid,
+                    workspace=ws,
+                    cfg=self.cfg.sandbox,
+                    policy=self.egress[segment],
+                    network=self.cfg.segment_network(segment),
+                    proxy_url=self.cfg.segment_proxy(segment),
+                    segment=segment,
+                    allowlist_extra=extra,
+                    env=policy.env(req.get("env")),
+                )
                 await box.start()
                 self.boxes[key] = box
-                self.record(segment, "create", sid, allow_extra=extra,
-                            env_keys=sorted(box.env))
+                self.record(segment, "create", sid, allow_extra=extra, env_keys=sorted(box.env))
             return {"id": self.boxes[key].id}
 
         box = self.boxes.get(key)
@@ -76,8 +86,7 @@ class Broker:
             cmd = policy.command(req.get("command"))
             res = await box.exec(cmd, policy.timeout(req.get("timeout_s")))
             blocked = [asdict(b) for b in box.egress_blocked_since_last()]
-            self.record(segment, "exec", sid, exit_code=res.exit_code,
-                        duration_ms=res.duration_ms)
+            self.record(segment, "exec", sid, exit_code=res.exit_code, duration_ms=res.duration_ms)
             return {"result": asdict(res), "egress_blocked": blocked}
         if op == "reset":
             await box.reset()
@@ -101,6 +110,7 @@ class Broker:
                 await writer.drain()
             finally:
                 writer.close()
+
         return on_client
 
     async def serve(self) -> None:
@@ -110,8 +120,9 @@ class Broker:
             path.parent.mkdir(parents=True, exist_ok=True)
             os.chmod(path.parent, 0o700)
             path.unlink(missing_ok=True)
-            servers.append(await asyncio.start_unix_server(self.connection_handler(seg),
-                                                           path=str(path)))
+            servers.append(
+                await asyncio.start_unix_server(self.connection_handler(seg), path=str(path))
+            )
             os.chmod(path, 0o600)
             log.info("segmento %s: %s", seg, path)
         try:

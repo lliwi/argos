@@ -47,8 +47,10 @@ server = MCPServer(name="notion", version=VERSION)
 
 def _configured() -> str | None:
     if not os.environ.get("ARGOS_NOTION_TOKEN"):
-        return ("Notion no está configurado: falta el api_key en secrets/inventory.yaml "
-                "(servicio 'notion').")
+        return (
+            "Notion no está configurado: falta el api_key en secrets/inventory.yaml "
+            "(servicio 'notion')."
+        )
     return None
 
 
@@ -94,8 +96,9 @@ async def search(query: str = "", type: str = "", limit: int = 20) -> str:
         await client.aclose()
 
 
-async def _render(client: NotionClient, block_id: str, depth: int, budget: list[int],
-                  out: list[str]) -> None:
+async def _render(
+    client: NotionClient, block_id: str, depth: int, budget: list[int], out: list[str]
+) -> None:
     number = 0
     for b in await client.children(block_id):
         if budget[0] <= 0:
@@ -104,8 +107,11 @@ async def _render(client: NotionClient, block_id: str, depth: int, budget: list[
         line = "  " * depth + block_text(b, number or 1)
         out.append(line)
         budget[0] -= len(line) + 1
-        if b.get("has_children") and depth < 2 and b.get("type") not in (
-                "child_page", "child_database"):
+        if (
+            b.get("has_children")
+            and depth < 2
+            and b.get("type") not in ("child_page", "child_database")
+        ):
             await _render(client, b["id"], depth + 1, budget, out)
 
 
@@ -122,8 +128,12 @@ async def read_page(page_id: str) -> str:
     try:
         page = await client.page(pid)
         props = {k: v for k, v in row(page).items() if k not in ("id", "url")}
-        out = [f"# {title_of(page)}", f"id: {page['id']}  url: {page.get('url')}",
-               f"propiedades: {json.dumps(props, ensure_ascii=False)}", ""]
+        out = [
+            f"# {title_of(page)}",
+            f"id: {page['id']}  url: {page.get('url')}",
+            f"propiedades: {json.dumps(props, ensure_ascii=False)}",
+            "",
+        ]
         budget = [MAX_READ_CHARS]
         await _render(client, pid, 0, budget, out)
         if budget[0] <= 0:
@@ -147,8 +157,9 @@ async def database_schema(database_id: str) -> str:
     client = _client()
     try:
         db = await client.database(did)
-        return _dump({"id": db["id"], "title": title_of(db), "url": db.get("url"),
-                      "properties": schema(db)})
+        return _dump(
+            {"id": db["id"], "title": title_of(db), "url": db.get("url"), "properties": schema(db)}
+        )
     except NotionError as exc:
         return f"ERROR: {exc}"
     finally:
@@ -156,8 +167,9 @@ async def database_schema(database_id: str) -> str:
 
 
 @server.tool(annotations=READ)
-async def query_database(database_id: str, filter: str = "", sorts: str = "",
-                         limit: int = 50) -> str:
+async def query_database(
+    database_id: str, filter: str = "", sorts: str = "", limit: int = 50
+) -> str:
     """Filas de una base de datos con propiedades simplificadas. filter y sorts son JSON con la
     sintaxis del API de Notion, p. ej. filter={"property":"Estado","status":{"equals":"En
     progreso"}} y sorts=[{"property":"Fecha objetivo","direction":"ascending"}]."""
@@ -179,8 +191,13 @@ async def query_database(database_id: str, filter: str = "", sorts: str = "",
 
 
 @server.tool(annotations=WRITE)
-async def create_page(parent_id: str, title: str = "", content: str = "",
-                      properties: str = "", parent_type: str = "page") -> str:
+async def create_page(
+    parent_id: str,
+    title: str = "",
+    content: str = "",
+    properties: str = "",
+    parent_type: str = "page",
+) -> str:
     """Crea una página. parent_type="page": subpágina de parent_id con ese title.
     parent_type="database": fila nueva en la base parent_id; properties es un JSON de valores
     simples por nombre de propiedad (p. ej. {"Nombre tarea":"…","Estado":"Sin empezar",

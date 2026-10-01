@@ -10,22 +10,32 @@ import re
 from typing import Any
 
 SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("private_key", re.compile(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)),
+    (
+        "private_key",
+        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
+    ),
     ("aws_key", re.compile(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
     ("openai_key", re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}\b")),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b")),
     ("bearer", re.compile(r"(?i)(bearer\s+)[A-Za-z0-9_\-\.=]{16,}")),
-    ("assignment", re.compile(
-        r"(?i)\b((?:api[_-]?key|token|secret|password|passwd|pwd)\s*[=:]\s*)['\"]?[^\s'\"&]{6,}")),
+    (
+        "assignment",
+        re.compile(
+            r"(?i)\b((?:api[_-]?key|token|secret|password|passwd|pwd)\s*[=:]\s*)['\"]?[^\s'\"&]{6,}"
+        ),
+    ),
     # Frases libres, también en castellano: "la contraseña es X", "clave: X", "password X".
     # El valor debe parecer un secreto (≥6 caracteres con algún dígito o símbolo) para no
     # redactar texto normal como "la contraseña es segura".
-    ("credential", re.compile(
-        r"(?i)\b((?:contrase[ñn]a|clave|password|passwd|pwd|pass|passphrase|pin|token|secreto)"
-        r"(?:\s+(?:es|is|era|sería|nueva|actual|del?\s+\w+)){0,3}\s*[:=]?\s+)"
-        r"['\"]?(?=[^\s'\"]*[\d_\-!@#$%^&*+/.])[^\s'\",;]{6,}")),
+    (
+        "credential",
+        re.compile(
+            r"(?i)\b((?:contrase[ñn]a|clave|password|passwd|pwd|pass|passphrase|pin|token|secreto)"
+            r"(?:\s+(?:es|is|era|sería|nueva|actual|del?\s+\w+)){0,3}\s*[:=]?\s+)"
+            r"['\"]?(?=[^\s'\"]*[\d_\-!@#$%^&*+/.])[^\s'\",;]{6,}"
+        ),
+    ),
 ]
 
 PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -38,11 +48,25 @@ PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 # Campos de identidad/estructura que nunca se redactan (romperían la reconstrucción de trazas).
-STRUCTURAL_KEYS = frozenset({
-    "id", "type", "ts", "session_id", "parent_session_id", "trace_id", "span_id",
-    "parent_span_id", "turn_id", "retry_of", "hash", "config_hash", "harness_commit",
-    "prompt_version", "decided_at",
-})
+STRUCTURAL_KEYS = frozenset(
+    {
+        "id",
+        "type",
+        "ts",
+        "session_id",
+        "parent_session_id",
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "turn_id",
+        "retry_of",
+        "hash",
+        "config_hash",
+        "harness_commit",
+        "prompt_version",
+        "decided_at",
+    }
+)
 
 
 class Redactor:

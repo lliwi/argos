@@ -13,12 +13,22 @@ from html.parser import HTMLParser
 import httpx
 
 BASE = "https://www.eltiempo.es"
-UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-      "Chrome/130 Safari/537.36")
+UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/130 Safari/537.36"
+)
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _NUM = re.compile(r"-?\d+(?:[.,]\d+)?")
-_DIRS = {"north": "N", "north-east": "NE", "east": "E", "south-east": "SE", "south": "S",
-         "south-west": "SO", "west": "O", "north-west": "NO"}
+_DIRS = {
+    "north": "N",
+    "north-east": "NE",
+    "east": "E",
+    "south-east": "SE",
+    "south": "S",
+    "south-west": "SO",
+    "west": "O",
+    "north-west": "NO",
+}
 
 
 class WeatherError(RuntimeError):
@@ -41,7 +51,7 @@ class _Meteograma(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.rows: list[dict] = []
         self._in = False
-        self._depth = 0          # profundidad de <ul> dentro del meteograma
+        self._depth = 0  # profundidad de <ul> dentro del meteograma
         self._date = ""
         self._row: dict | None = None
         self._capture: str | None = None
@@ -112,13 +122,18 @@ def parse_hourly(html: str) -> list[dict]:
 
 async def fetch_hourly(city: str, transport: httpx.AsyncBaseTransport | None = None) -> list[dict]:
     if not valid_slug(city):
-        raise WeatherError("ciudad inválida (usa el nombre de la URL de eltiempo.es, p. ej. "
-                           "'barcelona' o 'sant-cugat-del-valles')")
+        raise WeatherError(
+            "ciudad inválida (usa el nombre de la URL de eltiempo.es, p. ej. "
+            "'barcelona' o 'sant-cugat-del-valles')"
+        )
     url = f"{BASE}/{city}.html"
     try:
-        async with httpx.AsyncClient(timeout=20, transport=transport, follow_redirects=True,
-                                     headers={"User-Agent": UA,
-                                              "Accept-Language": "es-ES,es;q=0.9"}) as http:
+        async with httpx.AsyncClient(
+            timeout=20,
+            transport=transport,
+            follow_redirects=True,
+            headers={"User-Agent": UA, "Accept-Language": "es-ES,es;q=0.9"},
+        ) as http:
             resp = await http.get(url, params={"v": "por_hora"})
     except httpx.HTTPError as exc:
         raise WeatherError(f"no se pudo contactar con eltiempo.es: {exc}") from exc
@@ -128,6 +143,8 @@ async def fetch_hourly(city: str, transport: httpx.AsyncBaseTransport | None = N
         raise WeatherError(f"eltiempo.es respondió HTTP {resp.status_code}")
     rows = parse_hourly(resp.text)
     if not rows:
-        raise WeatherError("no se reconoce la previsión por horas en la página "
-                           "(¿ha cambiado el formato de eltiempo.es?)")
+        raise WeatherError(
+            "no se reconoce la previsión por horas en la página "
+            "(¿ha cambiado el formato de eltiempo.es?)"
+        )
     return rows

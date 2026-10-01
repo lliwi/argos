@@ -34,12 +34,13 @@ class ModelCfg(BaseModel):
     name: str | None = None
     timeout_s: int = 300
     cost_per_mtok: dict[str, float] = Field(
-        default_factory=lambda: {"input": 0.0, "cached_input": 0.0, "output": 0.0})
+        default_factory=lambda: {"input": 0.0, "cached_input": 0.0, "output": 0.0}
+    )
     codex: CodexCfg = CodexCfg()
     # RF-CTX-05: decide = bucle normal; hard = escalado tras fallos; internal = trabajo interno.
     routes: dict[str, RouteCfg] = Field(default_factory=dict)
     escalate_after_failures: int = 2
-    summarize_observations_over: int = 0   # chars; 0 = desactivado
+    summarize_observations_over: int = 0  # chars; 0 = desactivado
 
     def route(self, name: str) -> Route:
         r = self.routes.get(name) or self.routes.get("decide") or RouteCfg()
@@ -55,8 +56,8 @@ class LoopCfg(BaseModel):
 
 
 class MemoryCfg(BaseModel):
-    inject_limit: int = 5              # RF-17: memorias relevantes por sesión
-    keep_recent_exchanges: int = 3     # intercambios literales de la conversación
+    inject_limit: int = 5  # RF-17: memorias relevantes por sesión
+    keep_recent_exchanges: int = 3  # intercambios literales de la conversación
 
 
 class SubagentsCfg(BaseModel):
@@ -98,15 +99,15 @@ class SegmentCfg(BaseModel):
 
     profiles: list[str]
     egress_extra: list[str] = Field(default_factory=list)
-    network: str | None = None      # por defecto argos_sandbox_<segmento>
-    proxy_url: str | None = None    # por defecto http://egress-<segmento>:3128
+    network: str | None = None  # por defecto argos_sandbox_<segmento>
+    proxy_url: str | None = None  # por defecto http://egress-<segmento>:3128
 
 
 class KaliCfg(BaseModel):
     """MCP de Kali (UC-2). El alcance y la autorización son del perfil, no de aquí."""
 
     url: str = "http://kali:8000"
-    token_env: str = "KALI_API_TOKEN"     # secreto opcional del perfil pentest
+    token_env: str = "KALI_API_TOKEN"  # secreto opcional del perfil pentest
 
 
 class MatrixCfg(BaseModel):
@@ -116,10 +117,10 @@ class MatrixCfg(BaseModel):
     user_id: str | None = None
     allowed_users: list[str] = Field(default_factory=list)
     profile: str = "personal"
-    notify_room: str | None = None      # sala de control para aprobaciones de otros canales
+    notify_room: str | None = None  # sala de control para aprobaciones de otros canales
     token_env: str = "ARGOS_MATRIX_TOKEN"
     progress_interval_s: float = 3.0
-    open_dm: bool = True                # abre un chat directo sin cifrar con allowed_users[0]
+    open_dm: bool = True  # abre un chat directo sin cifrar con allowed_users[0]
 
 
 class AuditCfg(BaseModel):
@@ -160,7 +161,8 @@ class Profile(BaseModel):
         if self.reads_untrusted and self.is_powerful:
             raise ValueError(
                 f"perfil {self.name!r}: reads_untrusted=true es incompatible con capacidad"
-                " potente (secretos 'powerful' o powerful=true) (P2, RF-SEC-03)")
+                " potente (secretos 'powerful' o powerful=true) (P2, RF-SEC-03)"
+            )
         return self
 
     def allows_tool(self, tool_name: str) -> bool:
@@ -182,8 +184,9 @@ class Config(BaseModel):
     matrix: MatrixCfg = MatrixCfg()
     kali: KaliCfg = KaliCfg()
     segments: dict[str, SegmentCfg] = Field(
-        default_factory=lambda: {"main": SegmentCfg(profiles=["*"])})
-    segment: str = "main"            # activo: $ARGOS_SEGMENT
+        default_factory=lambda: {"main": SegmentCfg(profiles=["*"])}
+    )
+    segment: str = "main"  # activo: $ARGOS_SEGMENT
 
     root: Path = ROOT
     profiles: dict[str, Profile] = Field(default_factory=dict)
@@ -246,7 +249,8 @@ class Config(BaseModel):
             return self.profiles[name]
         except KeyError:
             raise KeyError(
-                f"perfil desconocido: {name!r} (disponibles: {list(self.profiles)})") from None
+                f"perfil desconocido: {name!r} (disponibles: {list(self.profiles)})"
+            ) from None
 
     def config_hash(self) -> str:
         """Hash estable de la configuración efectiva (sin rutas locales)."""
@@ -278,11 +282,18 @@ def harness_commit(root: Path = ROOT) -> str:
     """Commit del arnés + marca `-dirty` si hay cambios sin confirmar (RF-OB-10)."""
     try:
         commit = subprocess.run(
-            ["git", "rev-parse", "--short=12", "HEAD"], cwd=root,
-            capture_output=True, text=True, check=True).stdout.strip()
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
         dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=root,
-            capture_output=True, text=True).stdout.strip()
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
         return commit + ("-dirty" if dirty else "")
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "unknown"

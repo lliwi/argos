@@ -70,10 +70,15 @@ class CodexCliProvider:
     """`overrides` son pares `clave=valor` TOML que se pasan como `-c` (p. ej. para recortar el
     prompt base de Codex); `disable_features` apaga features que añaden tools al contexto."""
 
-    def __init__(self, model: str | None = None, timeout_s: int = 300, binary: str = "codex",
-                 overrides: dict[str, str] | None = None,
-                 disable_features: list[str] | None = None,
-                 instructions: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        timeout_s: int = 300,
+        binary: str = "codex",
+        overrides: dict[str, str] | None = None,
+        disable_features: list[str] | None = None,
+        instructions: str | None = None,
+    ) -> None:
         self.model = model
         self.timeout_s = timeout_s
         self.binary = binary
@@ -83,17 +88,30 @@ class CodexCliProvider:
         self.instructions = instructions
         self.name = f"codex-cli:{model or 'default'}"
 
-    def build_command(self, workdir: Path, schema: Path,
-                      route: Route | None = None,
-                      images: list[Path] | None = None) -> list[str]:
+    def build_command(
+        self,
+        workdir: Path,
+        schema: Path,
+        route: Route | None = None,
+        images: list[Path] | None = None,
+    ) -> list[str]:
         cmd = [self.binary, "exec"]
         # Justo tras `exec`: `--image` admite varios valores y se tragaría el "-" final.
         for image in images or []:
             cmd += ["--image", str(image)]
         cmd += [
-            "--json", "--ephemeral", "--ignore-user-config",
-            "--skip-git-repo-check", "-s", "read-only", "-C", str(workdir),
-            "--output-schema", str(schema), "--color", "never",
+            "--json",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "-C",
+            str(workdir),
+            "--output-schema",
+            str(schema),
+            "--color",
+            "never",
         ]
         model = (route.model if route else None) or self.model
         if model:
@@ -111,8 +129,7 @@ class CodexCliProvider:
         cmd.append("-")
         return cmd
 
-    async def complete(self, request: ModelRequest,
-                       route: Route | None = None) -> ModelResponse:
+    async def complete(self, request: ModelRequest, route: Route | None = None) -> ModelResponse:
         prompt = request.render()
         with tempfile.TemporaryDirectory(prefix="argos-codex-") as tmp:
             workdir = Path(tmp) / "empty"
@@ -123,13 +140,17 @@ class CodexCliProvider:
             start = time.monotonic()
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE)
+                    *cmd,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
             except FileNotFoundError as exc:
                 raise ModelError(f"no se encuentra el binario {self.binary!r}") from exc
             try:
                 out, err = await asyncio.wait_for(
-                    proc.communicate(prompt.encode("utf-8")), timeout=self.timeout_s)
+                    proc.communicate(prompt.encode("utf-8")), timeout=self.timeout_s
+                )
             except TimeoutError as exc:
                 proc.kill()
                 await proc.wait()
@@ -142,7 +163,11 @@ class CodexCliProvider:
             tail = err.decode("utf-8", errors="replace").strip().splitlines()[-3:]
             raise ModelError(f"codex exec salió con {proc.returncode}: {' | '.join(tail)}")
         return ModelResponse(
-            decision=parse_decision(text), usage=usage, latency_ms=latency_ms,
-            raw_text=text, violations=violations,
+            decision=parse_decision(text),
+            usage=usage,
+            latency_ms=latency_ms,
+            raw_text=text,
+            violations=violations,
             model=((route.model if route else None) or self.model or "codex-default")
-            + (f"@{route.effort}" if route and route.effort else ""))
+            + (f"@{route.effort}" if route and route.effort else ""),
+        )

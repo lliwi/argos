@@ -23,17 +23,21 @@ def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(os.environ.get("ARGOS_REMINDERS_DB", "reminders.db"))
     conn.execute(
         "CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " text TEXT NOT NULL, due TEXT, done INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)")
+        " text TEXT NOT NULL, due TEXT, done INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)"
+    )
     return conn
 
 
-@server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False,
-                                         idempotent_hint=False))
+@server.tool(
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False)
+)
 def add(text: str, due: str | None = None) -> str:
     """Crea un recordatorio. `due` en ISO-8601 opcional."""
     with _db() as conn:
-        cur = conn.execute("INSERT INTO reminders(text, due, created_at) VALUES (?,?,?)",
-                           (text, due, datetime.now(UTC).isoformat()))
+        cur = conn.execute(
+            "INSERT INTO reminders(text, due, created_at) VALUES (?,?,?)",
+            (text, due, datetime.now(UTC).isoformat()),
+        )
         return f"recordatorio #{cur.lastrowid} creado"
 
 
@@ -43,15 +47,20 @@ def list_reminders(include_done: bool = False) -> str:
     with _db() as conn:
         rows = conn.execute(
             "SELECT id, text, due, done FROM reminders"
-            + ("" if include_done else " WHERE done=0") + " ORDER BY id").fetchall()
+            + ("" if include_done else " WHERE done=0")
+            + " ORDER BY id"
+        ).fetchall()
     if not rows:
         return "(sin recordatorios)"
-    return "\n".join(f"#{i} [{'x' if d else ' '}] {t}" + (f" (vence {due})" if due else "")
-                     for i, t, due, d in rows)
+    return "\n".join(
+        f"#{i} [{'x' if d else ' '}] {t}" + (f" (vence {due})" if due else "")
+        for i, t, due, d in rows
+    )
 
 
-@server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False,
-                                         idempotent_hint=True))
+@server.tool(
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True)
+)
 def complete(reminder_id: int) -> str:
     """Marca un recordatorio como hecho."""
     with _db() as conn:
@@ -61,8 +70,9 @@ def complete(reminder_id: int) -> str:
     return f"recordatorio #{reminder_id} completado"
 
 
-@server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True,
-                                         idempotent_hint=True))
+@server.tool(
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True)
+)
 def delete(reminder_id: int) -> str:
     """Borra un recordatorio (destructivo: requiere aprobación)."""
     with _db() as conn:

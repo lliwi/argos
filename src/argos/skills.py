@@ -61,8 +61,14 @@ def parse_skill(path: Path) -> Skill:
     body = match.group(2).strip()
     if not body:
         raise SkillError(f"{path}: cuerpo vacío")
-    return Skill(name, str(meta["description"]).strip(), str(meta.get("version", "0.0.0")), body,
-                 path, hashlib.sha256(text.encode()).hexdigest())
+    return Skill(
+        name,
+        str(meta["description"]).strip(),
+        str(meta.get("version", "0.0.0")),
+        body,
+        path,
+        hashlib.sha256(text.encode()).hexdigest(),
+    )
 
 
 class SkillRegistry:
@@ -78,15 +84,19 @@ class SkillRegistry:
                 self.errors.append(str(exc))
 
     def for_profile(self, patterns: list[str]) -> dict[str, Skill]:
-        return {n: s for n, s in self.skills.items()
-                if any(fnmatch.fnmatchcase(n, p) for p in patterns)}
+        return {
+            n: s for n, s in self.skills.items() if any(fnmatch.fnmatchcase(n, p) for p in patterns)
+        }
 
     def install(self, source: str, force: bool = False) -> Skill:
         """Instala desde un directorio local o un repo git (`https://…`, `git@…`)."""
         with tempfile.TemporaryDirectory(prefix="argos-skill-") as tmp:
             if re.match(r"^(https://|git@)", source):
-                proc = subprocess.run(["git", "clone", "--depth", "1", source, f"{tmp}/repo"],
-                                      capture_output=True, text=True)
+                proc = subprocess.run(
+                    ["git", "clone", "--depth", "1", source, f"{tmp}/repo"],
+                    capture_output=True,
+                    text=True,
+                )
                 if proc.returncode != 0:
                     raise SkillError(f"git clone falló: {proc.stderr.strip()[:300]}")
                 src = Path(tmp) / "repo"
@@ -109,30 +119,45 @@ def skills_index(skills: dict[str, Skill]) -> str:
     if not skills:
         return ""
     lines = "\n".join(f"- {s.name}: {s.description}" for s in skills.values())
-    return ("\n\n## Skills disponibles\nInstrucciones especializadas. Si una encaja con la tarea, "
-            f"cárgala con skills.load antes de empezar.\n{lines}")
+    return (
+        "\n\n## Skills disponibles\nInstrucciones especializadas. Si una encaja con la tarea, "
+        f"cárgala con skills.load antes de empezar.\n{lines}"
+    )
 
 
 class LoadSkillTool(Tool):
     name = "skills.load"
     description = "Carga las instrucciones completas de una skill del índice."
-    parameters = {"type": "object", "required": ["name"],
-                  "properties": {"name": {"type": "string"}}}
+    parameters = {
+        "type": "object",
+        "required": ["name"],
+        "properties": {"name": {"type": "string"}},
+    }
     risk_class = RiskClass.READ
     idempotent = True
 
     def __init__(self, skills: dict[str, Skill], on_load) -> None:
         self._skills = skills
-        self._on_load = on_load   # callback(skill) -> None: la inyecta en el contexto
+        self._on_load = on_load  # callback(skill) -> None: la inyecta en el contexto
 
     async def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         name = str(args.get("name", ""))
         skill = self._skills.get(name)
         if skill is None:
-            raise ToolError(f"skill desconocida: {name!r} (disponibles: {list(self._skills)})",
-                            ErrorKind.VALIDATION_ERROR)
+            raise ToolError(
+                f"skill desconocida: {name!r} (disponibles: {list(self._skills)})",
+                ErrorKind.VALIDATION_ERROR,
+            )
         self._on_load(skill)
-        ctx.emit(SkillActivation(session_id=ctx.session_id, turn_id=ctx.turn_id,
-                                 skill=skill.name, version=skill.full_version))
-        return ToolResult(f"skill {skill.name} ({skill.full_version}) cargada: sus instrucciones "
-                          "están ahora en tu contexto de sistema.")
+        ctx.emit(
+            SkillActivation(
+                session_id=ctx.session_id,
+                turn_id=ctx.turn_id,
+                skill=skill.name,
+                version=skill.full_version,
+            )
+        )
+        return ToolResult(
+            f"skill {skill.name} ({skill.full_version}) cargada: sus instrucciones "
+            "están ahora en tu contexto de sistema."
+        )

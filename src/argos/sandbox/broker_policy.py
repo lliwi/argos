@@ -15,8 +15,18 @@ from typing import Any
 SESSION_RE = re.compile(r"^[0-9a-f]{32}$")
 DOMAIN_RE = re.compile(r"^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$")
 ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
-RESERVED_ENV = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY",
-                          "no_proxy", "PATH", "HOME"})
+RESERVED_ENV = frozenset(
+    {
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "NO_PROXY",
+        "no_proxy",
+        "PATH",
+        "HOME",
+    }
+)
 MAX_DOMAINS = 20
 MAX_TIMEOUT_S = 600
 MAX_COMMAND = 20_000
@@ -55,8 +65,7 @@ def domains(value: Any) -> list[str]:
     out = []
     for item in value:
         # Dominios (con comodín de subdominio) o IP/rango CIDR concretos; nunca comodín general.
-        if not isinstance(item, str) or not (
-                DOMAIN_RE.match(item.lower()) or _is_ip_or_cidr(item)):
+        if not isinstance(item, str) or not (DOMAIN_RE.match(item.lower()) or _is_ip_or_cidr(item)):
             raise PolicyError(f"entrada de egress inválida: {item!r}")
         out.append(item.lower())
     return out

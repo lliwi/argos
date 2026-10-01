@@ -26,7 +26,7 @@ from argos.inventory import load_inventory
 
 @dataclass
 class Truth:
-    kind: str                    # count | names | number | choice
+    kind: str  # count | names | number | choice
     value: Any
     detail: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
@@ -43,6 +43,7 @@ def norm(text: str) -> str:
 
 # --------------------------------------------------------------------------- sondas
 
+
 async def portainer_stopped(cfg: Config, params: dict[str, Any]) -> Truth:
     from argos.mcp_servers.portainer.rest import PortainerClient
 
@@ -56,8 +57,9 @@ async def portainer_stopped(cfg: Config, params: dict[str, Any]) -> Truth:
         items = await client.containers(all_=True)
     finally:
         await client.aclose()
-    names = sorted((c.get("Names") or ["?"])[0].lstrip("/") for c in items
-                   if c.get("State") != "running")
+    names = sorted(
+        (c.get("Names") or ["?"])[0].lstrip("/") for c in items if c.get("State") != "running"
+    )
     return Truth("names", names, f"{len(names)} parados de {len(items)}: {names}")
 
 
@@ -75,8 +77,12 @@ async def nas_volume_used(cfg: Config, params: dict[str, Any]) -> Truth:
     if row is None:
         raise ProbeError(f"volumen {volume} no encontrado")
     used = float(row["percent"])
-    return Truth("number", used, f"{volume} usado {used}% (libre {100 - used}%)",
-                 {"alternatives": [100 - used]})    # vale dar % usado o % libre
+    return Truth(
+        "number",
+        used,
+        f"{volume} usado {used}% (libre {100 - used}%)",
+        {"alternatives": [100 - used]},
+    )  # vale dar % usado o % libre
 
 
 async def cloudflare_tunnels(cfg: Config, params: dict[str, Any]) -> Truth:
@@ -95,8 +101,7 @@ async def cloudflare_tunnels(cfg: Config, params: dict[str, Any]) -> Truth:
     bad = sorted(t.get("name", "?") for t in tunnels if t.get("status") != "healthy")
     if bad:
         return Truth("names", bad, f"túneles con problemas: {bad} de {len(tunnels)}")
-    return Truth("count", len(tunnels), f"{len(tunnels)} túneles, todos healthy",
-                 {"all_ok": True})
+    return Truth("count", len(tunnels), f"{len(tunnels)} túneles, todos healthy", {"all_ok": True})
 
 
 async def notion_todo_pending(cfg: Config, params: dict[str, Any]) -> Truth:
@@ -109,13 +114,22 @@ async def notion_todo_pending(cfg: Config, params: dict[str, Any]) -> Truth:
         raise ProbeError("notion sin configurar en el inventario")
     client = NotionClient(token)
     try:
-        rows = await client.query(params["database_id"], {"and": [
-            {"property": "Estado", "status": {"does_not_equal": "Completado"}},
-            {"property": "Estado", "status": {"does_not_equal": "Cancelado"}}]}, None, 200)
+        rows = await client.query(
+            params["database_id"],
+            {
+                "and": [
+                    {"property": "Estado", "status": {"does_not_equal": "Completado"}},
+                    {"property": "Estado", "status": {"does_not_equal": "Cancelado"}},
+                ]
+            },
+            None,
+            200,
+        )
     finally:
         await client.aclose()
-    names = sorted(prop_value(r["properties"][params.get("title", "Nombre tarea")]) or "?"
-                   for r in rows)
+    names = sorted(
+        prop_value(r["properties"][params.get("title", "Nombre tarea")]) or "?" for r in rows
+    )
     return Truth("names", names, f"{len(names)} pendientes: {names}")
 
 
@@ -132,9 +146,11 @@ async def ha_lights_on(cfg: Config, params: dict[str, Any]) -> Truth:
         states = await client.states()
     finally:
         await client.aclose()
-    on = sorted((s.get("attributes") or {}).get("friendly_name") or s["entity_id"]
-                for s in states
-                if str(s.get("entity_id", "")).startswith("light.") and s.get("state") == "on")
+    on = sorted(
+        (s.get("attributes") or {}).get("friendly_name") or s["entity_id"]
+        for s in states
+        if str(s.get("entity_id", "")).startswith("light.") and s.get("state") == "on"
+    )
     # Los nombres suelen ser IDs Zigbee poco legibles: se mide el recuento.
     return Truth("count", len(on), f"{len(on)} luces encendidas: {on}")
 
@@ -145,8 +161,9 @@ def commute_decision(rows: list[dict], hours: set[int], rules: dict[str, float])
     for r in rows:
         if int(r["hour"][:2]) not in hours:
             continue
-        if (r.get("rain_mm") or 0) > rules["rain_mm"] or \
-                (r.get("rain_prob") or 0) >= rules["rain_prob"]:
+        if (r.get("rain_mm") or 0) > rules["rain_mm"] or (r.get("rain_prob") or 0) >= rules[
+            "rain_prob"
+        ]:
             reasons.append(f"lluvia {r['hour']}")
         if (r.get("wind_kmh") or 0) >= rules["wind_kmh"]:
             reasons.append(f"viento {r['hour']}")
@@ -160,18 +177,25 @@ async def commute(cfg: Config, params: dict[str, Any]) -> Truth:
     si la decisión cambia según se incluyan o no las horas finales, se aceptan ambas."""
     from argos.mcp_servers.weather.eltiempo import fetch_hourly
 
-    rules = {"rain_mm": 0.2, "rain_prob": 40, "wind_kmh": 30, "temp_c": 5,
-             **params.get("rules", {})}
+    rules = {
+        "rain_mm": 0.2,
+        "rain_prob": 40,
+        "wind_kmh": 30,
+        "temp_c": 5,
+        **params.get("rules", {}),
+    }
     tz = ZoneInfo(params.get("timezone", "Europe/Madrid"))
     tomorrow = (datetime.now(tz) + timedelta(days=1)).date().isoformat()
-    rows = [r for r in await fetch_hourly(params.get("city", "barcelona"))
-            if r["date"] == tomorrow]
+    rows = [r for r in await fetch_hourly(params.get("city", "barcelona")) if r["date"] == tomorrow]
     if not rows:
         raise ProbeError(f"sin previsión para {tomorrow}")
     strict, why_s = commute_decision(rows, {7, 8, 17, 18}, rules)
     loose, why_l = commute_decision(rows, {7, 17}, rules)
-    return Truth("choice", sorted({strict, loose}),
-                 f"{tomorrow}: con 7-8/17-18 → {strict} ({why_s}); con 7/17 → {loose} ({why_l})")
+    return Truth(
+        "choice",
+        sorted({strict, loose}),
+        f"{tomorrow}: con 7-8/17-18 → {strict} ({why_s}); con 7/17 → {loose} ({why_l})",
+    )
 
 
 PROBES = {
@@ -186,8 +210,10 @@ PROBES = {
 
 # --------------------------------------------------------------------------- comparación
 
-_ZERO = re.compile(r"\b(ningun[oa]?|no hay|0|cero|todos? (estan|funcionan|operativ|healthy)|"
-                   r"todas? (estan )?apagad|nada)\b")
+_ZERO = re.compile(
+    r"\b(ningun[oa]?|no hay|0|cero|todos? (estan|funcionan|operativ|healthy)|"
+    r"todas? (estan )?apagad|nada)\b"
+)
 
 
 def _has_number(text: str, n: float, tol: float = 0.0) -> bool:
@@ -202,26 +228,31 @@ def judge(truth: Truth, answer: str, tolerance: float = 0.0) -> tuple[bool, str]
     text = norm(answer)
     if truth.kind == "count":
         n = int(truth.value)
-        ok = _has_number(text, n) or (truth.extra.get("all_ok") and bool(_ZERO.search(text))) \
+        ok = (
+            _has_number(text, n)
+            or (truth.extra.get("all_ok") and bool(_ZERO.search(text)))
             or (n == 0 and bool(_ZERO.search(text)))
+        )
         return ok, f"esperado {n} · {truth.detail}"
     if truth.kind == "names":
         names = list(truth.value)
         if not names:
             return bool(_ZERO.search(text)), f"esperado «ninguno» · {truth.detail}"
         missing = [n for n in names if norm(n) not in text]
-        if len(names) > 10:        # muchos: basta con el recuento correcto
+        if len(names) > 10:  # muchos: basta con el recuento correcto
             return _has_number(text, len(names)), f"esperado {len(names)} · {truth.detail}"
-        return not missing, (f"faltan {missing}" if missing else "todos mencionados") + \
-            f" · {truth.detail}"
+        return not missing, (
+            f"faltan {missing}" if missing else "todos mencionados"
+        ) + f" · {truth.detail}"
     if truth.kind == "number":
         candidates = [float(truth.value), *truth.extra.get("alternatives", [])]
         ok = any(_has_number(text, c, tolerance) for c in candidates)
         return ok, f"esperado {candidates} ±{tolerance} · {truth.detail}"
     if truth.kind == "choice":
         first = norm((answer or "").strip().splitlines()[0] if answer else "")
-        said = [c for c in ("bici", "coche") if c in first] or \
-            [c for c in ("bici", "coche") if c in text][:1]
+        said = [c for c in ("bici", "coche") if c in first] or [
+            c for c in ("bici", "coche") if c in text
+        ][:1]
         ok = len(said) == 1 and said[0] in truth.value
         return ok, f"dijo {said or '?'}; válido {truth.value} · {truth.detail}"
     raise ValueError(f"tipo de verdad desconocido: {truth.kind}")

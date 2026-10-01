@@ -36,8 +36,8 @@ def load_profile_secrets(root: Path, profile: Profile, redactor: Redactor) -> di
         log.warning("sops no instalado: el perfil %s arranca sin secretos", profile.name)
         return {}
     proc = subprocess.run(
-        ["sops", "--decrypt", "--output-type", "yaml", str(path)],
-        capture_output=True, text=True)
+        ["sops", "--decrypt", "--output-type", "yaml", str(path)], capture_output=True, text=True
+    )
     if proc.returncode != 0:
         # No se incluye stdout: podría contener material descifrado parcial.
         raise SecretsError(f"sops no pudo descifrar {path.name}: {proc.stderr.strip()[:300]}")

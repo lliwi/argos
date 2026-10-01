@@ -18,12 +18,23 @@ class PortainerError(RuntimeError):
 
 
 class PortainerClient:
-    def __init__(self, base_url: str, api_key: str, endpoint: int = 1, timeout: float = 30,
-                 verify: bool = True, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        endpoint: int = 1,
+        timeout: float = 30,
+        verify: bool = True,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self.endpoint = endpoint
         self._http = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), timeout=timeout, verify=verify, transport=transport,
-            headers={"X-API-Key": api_key})
+            base_url=base_url.rstrip("/"),
+            timeout=timeout,
+            verify=verify,
+            transport=transport,
+            headers={"X-API-Key": api_key},
+        )
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -56,15 +67,22 @@ class PortainerClient:
         return await self._req("GET", "/api/endpoints") or []
 
     async def containers(self, all_: bool = True) -> list[dict]:
-        return await self._req("GET", self._docker("/containers/json"),
-                               params={"all": "1" if all_ else "0"}) or []
+        return (
+            await self._req(
+                "GET", self._docker("/containers/json"), params={"all": "1" if all_ else "0"}
+            )
+            or []
+        )
 
     async def inspect(self, container_id: str) -> dict:
         return await self._req("GET", self._docker(f"/containers/{quote(container_id)}/json"))
 
     async def logs(self, container_id: str, tail: int = 200) -> str:
-        out = await self._req("GET", self._docker(f"/containers/{quote(container_id)}/logs"),
-                              params={"stdout": "1", "stderr": "1", "tail": str(tail)})
+        out = await self._req(
+            "GET",
+            self._docker(f"/containers/{quote(container_id)}/logs"),
+            params={"stdout": "1", "stderr": "1", "tail": str(tail)},
+        )
         return out if isinstance(out, str) else str(out)
 
     async def container_action(self, container_id: str, action: str) -> None:

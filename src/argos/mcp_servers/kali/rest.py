@@ -17,8 +17,9 @@ class KaliError(RuntimeError):
 class KaliRestClient:
     def __init__(self, base_url: str, token: str | None = None, timeout: float = 600) -> None:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
-        self._http = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout,
-                                       headers=headers)
+        self._http = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"), timeout=timeout, headers=headers
+        )
 
     async def aclose(self) -> None:
         await self._http.aclose()

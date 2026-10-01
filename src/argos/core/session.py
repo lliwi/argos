@@ -62,17 +62,17 @@ class SessionOptions:
     task: str
     profile: str = "personal"
     channel: str = "cli"
-    dry_run: bool | None = None          # None => lo que diga el perfil
+    dry_run: bool | None = None  # None => lo que diga el perfil
     parent_session_id: str | None = None
     allow_domains: list[str] = field(default_factory=list)
     session_budget_tokens: int | None = None
     input_files: dict[str, str] = field(default_factory=dict)  # nombre -> contenido (in/)
     attachments: list[Attachment] = field(default_factory=list)  # del usuario (in/, binario)
-    state_dir: Path | None = None        # estado durable de tools (p. ej. evals aisladas)
-    workspace: Path | None = None        # subagentes: comparten el workspace del padre
-    depth: int = 0                       # 0 = sesión raíz
-    session_id: str | None = None        # lo fija la API para poder devolverlo al instante
-    thread_id: str | None = None         # conversación a la que pertenece (argos.state)
+    state_dir: Path | None = None  # estado durable de tools (p. ej. evals aisladas)
+    workspace: Path | None = None  # subagentes: comparten el workspace del padre
+    depth: int = 0  # 0 = sesión raíz
+    session_id: str | None = None  # lo fija la API para poder devolverlo al instante
+    thread_id: str | None = None  # conversación a la que pertenece (argos.state)
     trace_id: str | None = None
 
 
@@ -136,10 +136,15 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
     reg.register(MemorySearch(state))
     reg.register(MemoryUpdate(state))
     if cfg.subagents.max_depth > 0:
+
         async def _noop(_task: str, _budget: int, _target: str | None = None):
             return ("", "completed", "", 0, 0)
-        targets = {n: cfg.profile(n).description for n in profile.delegate_profiles
-                   if n in cfg.profiles and cfg.allows_profile(n)}
+
+        targets = {
+            n: cfg.profile(n).description
+            for n in profile.delegate_profiles
+            if n in cfg.profiles and cfg.allows_profile(n)
+        }
         reg.register(DelegateTool(_noop, cfg.subagents.budget_tokens, profile.name, targets))
     mcp = McpConnections()
     try:
@@ -150,55 +155,91 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
             for tool in await mcp.connect(weather_server()):
                 reg.register(tool)
         if profile.allows_tool("kali.nmap"):
-            for tool in await mcp.connect(kali_server(
-                    cfg.kali.url, None, profile.scope, profile.authorization_ref, True)):
+            for tool in await mcp.connect(
+                kali_server(cfg.kali.url, None, profile.scope, profile.authorization_ref, True)
+            ):
                 reg.register(tool)
         inv = load_inventory(cfg.root)
         if profile.allows_tool("infra.inventory"):
             reg.register(InventoryTool(inv))
         if profile.allows_tool("portainer.list_containers"):
             pt = inv.get("portainer")
-            for tool in await mcp.connect(portainer_server(
-                    pt.get("url", ""), inv.secret("portainer", "api_key") or "",
-                    int(pt.get("endpoint", 1)), True)):
+            for tool in await mcp.connect(
+                portainer_server(
+                    pt.get("url", ""),
+                    inv.secret("portainer", "api_key") or "",
+                    int(pt.get("endpoint", 1)),
+                    True,
+                )
+            ):
                 reg.register(tool)
         if profile.allows_tool("homeassistant.list_entities"):
             ha = inv.get("homeassistant")
-            ha_token = (inv.secret("homeassistant", "token")
-                        or inv.secret("homeassistant", "api_key") or "")
-            for tool in await mcp.connect(homeassistant_server(
-                    ha.get("url", ""), ha_token, True)):
+            ha_token = (
+                inv.secret("homeassistant", "token") or inv.secret("homeassistant", "api_key") or ""
+            )
+            for tool in await mcp.connect(homeassistant_server(ha.get("url", ""), ha_token, True)):
                 reg.register(tool)
         if profile.allows_tool("media.search"):
             jk, tr = inv.get("jackett"), inv.get("transmission")
-            for tool in await mcp.connect(media_server(
-                    jk.get("url", ""), inv.secret("jackett", "api_key") or "",
-                    tr.get("url", ""), tr.get("username", ""),
-                    inv.secret("transmission", "password") or "", True)):
+            for tool in await mcp.connect(
+                media_server(
+                    jk.get("url", ""),
+                    inv.secret("jackett", "api_key") or "",
+                    tr.get("url", ""),
+                    tr.get("username", ""),
+                    inv.secret("transmission", "password") or "",
+                    True,
+                )
+            ):
                 reg.register(tool)
         if profile.allows_tool("nas.list"):
             nas = inv.get("nas")
-            for tool in await mcp.connect(nas_server(
-                    nas.get("url", ""), nas.get("user", "") or nas.get("username", ""),
-                    inv.secret("nas", "password") or "", inv.secret("nas", "community") or "",
-                    True)):
+            for tool in await mcp.connect(
+                nas_server(
+                    nas.get("url", ""),
+                    nas.get("user", "") or nas.get("username", ""),
+                    inv.secret("nas", "password") or "",
+                    inv.secret("nas", "community") or "",
+                    True,
+                )
+            ):
                 reg.register(tool)
         if profile.allows_tool("cloudflare.zones"):
             cf_token = inv.secret("cloudflare", "api_key") or inv.secret("cloudflare", "token")
             for tool in await mcp.connect(cloudflare_server(cf_token or "", True)):
                 reg.register(tool)
         if profile.allows_tool("notion.search"):
-            for tool in await mcp.connect(notion_server(
-                    inv.secret("notion", "api_key") or inv.secret("notion", "token") or "", True)):
+            for tool in await mcp.connect(
+                notion_server(
+                    inv.secret("notion", "api_key") or inv.secret("notion", "token") or "", True
+                )
+            ):
                 reg.register(tool)
         reg = reg.for_profile(profile)
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
-        out = [{"name": t.name, "version": t.version, "risk": t.risk_class.value,
-                "idempotent": t.idempotent, "mcp_server": t.mcp_server,
-                "description": t.description} for t in reg]
-        out += [{"name": f"skill:{sk.name}", "version": sk.full_version, "risk": "read",
-                 "idempotent": True, "mcp_server": "skill", "description": sk.description}
-                for sk in skills.values()]
+        out = [
+            {
+                "name": t.name,
+                "version": t.version,
+                "risk": t.risk_class.value,
+                "idempotent": t.idempotent,
+                "mcp_server": t.mcp_server,
+                "description": t.description,
+            }
+            for t in reg
+        ]
+        out += [
+            {
+                "name": f"skill:{sk.name}",
+                "version": sk.full_version,
+                "risk": "read",
+                "idempotent": True,
+                "mcp_server": "skill",
+                "description": sk.description,
+            }
+            for sk in skills.values()
+        ]
         return sorted(out, key=lambda d: d["name"])
     finally:
         await mcp.aclose()
@@ -230,7 +271,8 @@ async def run_session(
         # RF-SEC-02: un perfil solo se ejecuta en el núcleo de su segmento.
         raise SessionRefused(
             f"el perfil {opts.profile!r} no pertenece al segmento {cfg.segment!r}; ejecútalo con "
-            f"ARGOS_SEGMENT={cfg.segment_of(opts.profile) or '?'}")
+            f"ARGOS_SEGMENT={cfg.segment_of(opts.profile) or '?'}"
+        )
     if opts.depth > 0:
         # Los subagentes no ocupan hueco: los acota max_depth y el presupuesto del padre.
         return await _run(opts, cfg, provider, store, approver, sandbox_factory, on_progress)
@@ -240,8 +282,15 @@ async def run_session(
         return await _run(opts, cfg, provider, store, approver, sandbox_factory, on_progress)
 
 
-async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store: AuditStore,
-               approver: Approver | None, sandbox_factory, on_progress) -> SessionResult:
+async def _run(
+    opts: SessionOptions,
+    cfg: Config,
+    provider: ModelProvider,
+    store: AuditStore,
+    approver: Approver | None,
+    sandbox_factory,
+    on_progress,
+) -> SessionResult:
     profile = cfg.profile(opts.profile)
     killswitch = KillSwitch(store)
     sid = opts.session_id or uuid.uuid4().hex
@@ -274,9 +323,15 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
         if profile.allows_tool("kali.nmap"):
             # Auditoría de servicios propios (UC-2). Alcance y autorización del perfil (RF-SEC-06,
             # RF-LEG-01); el token de Kali, si lo hay, es un secreto scoped (nunca al modelo).
-            for tool in await mcp.connect(kali_server(
-                    cfg.kali.url, secrets.get(cfg.kali.token_env), profile.scope,
-                    profile.authorization_ref, dry_run)):
+            for tool in await mcp.connect(
+                kali_server(
+                    cfg.kali.url,
+                    secrets.get(cfg.kali.token_env),
+                    profile.scope,
+                    profile.authorization_ref,
+                    dry_run,
+                )
+            ):
                 tools.register(tool)
         inventory = load_inventory(cfg.root, store.redactor)
         if profile.allows_tool("infra.inventory"):
@@ -284,86 +339,136 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
         if profile.allows_tool("portainer.list_containers"):
             # Gestión de infra propia (UC-3). URL y api key del inventario (nunca al modelo).
             pt = inventory.get("portainer")
-            for tool in await mcp.connect(portainer_server(
-                    pt.get("url", ""), inventory.secret("portainer", "api_key") or "",
-                    int(pt.get("endpoint", 1)), dry_run)):
+            for tool in await mcp.connect(
+                portainer_server(
+                    pt.get("url", ""),
+                    inventory.secret("portainer", "api_key") or "",
+                    int(pt.get("endpoint", 1)),
+                    dry_run,
+                )
+            ):
                 tools.register(tool)
         if profile.allows_tool("homeassistant.list_entities"):
             ha = inventory.get("homeassistant")
-            ha_token = (inventory.secret("homeassistant", "token")
-                        or inventory.secret("homeassistant", "api_key") or "")
-            for tool in await mcp.connect(homeassistant_server(
-                    ha.get("url", ""), ha_token, dry_run)):
+            ha_token = (
+                inventory.secret("homeassistant", "token")
+                or inventory.secret("homeassistant", "api_key")
+                or ""
+            )
+            for tool in await mcp.connect(
+                homeassistant_server(ha.get("url", ""), ha_token, dry_run)
+            ):
                 tools.register(tool)
         if profile.allows_tool("media.search"):
             jk, tr = inventory.get("jackett"), inventory.get("transmission")
-            for tool in await mcp.connect(media_server(
-                    jk.get("url", ""), inventory.secret("jackett", "api_key") or "",
-                    tr.get("url", ""), tr.get("username", ""),
-                    inventory.secret("transmission", "password") or "", dry_run)):
+            for tool in await mcp.connect(
+                media_server(
+                    jk.get("url", ""),
+                    inventory.secret("jackett", "api_key") or "",
+                    tr.get("url", ""),
+                    tr.get("username", ""),
+                    inventory.secret("transmission", "password") or "",
+                    dry_run,
+                )
+            ):
                 tools.register(tool)
         if profile.allows_tool("nas.list"):
             nas = inventory.get("nas")
-            for tool in await mcp.connect(nas_server(
-                    nas.get("url", ""), nas.get("user", "") or nas.get("username", ""),
+            for tool in await mcp.connect(
+                nas_server(
+                    nas.get("url", ""),
+                    nas.get("user", "") or nas.get("username", ""),
                     inventory.secret("nas", "password") or "",
-                    inventory.secret("nas", "community") or "", dry_run)):
+                    inventory.secret("nas", "community") or "",
+                    dry_run,
+                )
+            ):
                 tools.register(tool)
         if profile.allows_tool("cloudflare.zones"):
-            cf_token = (inventory.secret("cloudflare", "api_key")
-                        or inventory.secret("cloudflare", "token"))
+            cf_token = inventory.secret("cloudflare", "api_key") or inventory.secret(
+                "cloudflare", "token"
+            )
             for tool in await mcp.connect(cloudflare_server(cf_token or "", dry_run)):
                 tools.register(tool)
         if profile.allows_tool("notion.search"):
-            notion_token = (inventory.secret("notion", "api_key")
-                            or inventory.secret("notion", "token") or "")
+            notion_token = (
+                inventory.secret("notion", "api_key") or inventory.secret("notion", "token") or ""
+            )
             for tool in await mcp.connect(notion_server(notion_token, dry_run)):
                 tools.register(tool)
 
         session_limit = opts.session_budget_tokens or cfg.budget.session_tokens
-        budget = BudgetTracker(sid, session_limit, cfg.budget.day_tokens, cfg.budget.warn_ratio,
-                               tokens_spent_today(store), lambda e: store.emit(e))
+        budget = BudgetTracker(
+            sid,
+            session_limit,
+            cfg.budget.day_tokens,
+            cfg.budget.warn_ratio,
+            tokens_spent_today(store),
+            lambda e: store.emit(e),
+        )
 
         if opts.depth < cfg.subagents.max_depth:
-            async def spawn(task: str, limit: int, target: str | None = None
-                            ) -> tuple[str, str, str, int, int]:
+
+            async def spawn(
+                task: str, limit: int, target: str | None = None
+            ) -> tuple[str, str, str, int, int]:
                 # El perfil destino debe estar autorizado por el perfil actual y pertenecer a
                 # este segmento (RF-SEC-02): no se cruza el aislamiento por delegación.
                 sub_profile = target or profile.name
                 if sub_profile != profile.name and (
-                        sub_profile not in profile.delegate_profiles
-                        or not cfg.allows_profile(sub_profile)):
+                    sub_profile not in profile.delegate_profiles
+                    or not cfg.allows_profile(sub_profile)
+                ):
                     raise ValueError(f"delegación a {sub_profile!r} no permitida")
                 child_dry = cfg.profile(sub_profile).dry_run if target else dry_run
                 remaining = max(1, budget.session_limit - budget.spent)
                 child = await run_session(
-                    SessionOptions(task=task, profile=sub_profile, channel=opts.channel,
-                                   dry_run=child_dry, parent_session_id=sid,
-                                   allow_domains=opts.allow_domains,
-                                   session_budget_tokens=min(limit, remaining),
-                                   state_dir=opts.state_dir, workspace=workspace,
-                                   depth=opts.depth + 1),
-                    cfg, provider, store=store, approver=approver,
-                    sandbox_factory=sandbox_factory, on_progress=on_progress)
-                return (child.session_id, child.status, child.message, child.steps,
-                        child.tokens)
-            targets = {n: cfg.profile(n).description for n in profile.delegate_profiles
-                       if n in cfg.profiles and cfg.allows_profile(n)}
+                    SessionOptions(
+                        task=task,
+                        profile=sub_profile,
+                        channel=opts.channel,
+                        dry_run=child_dry,
+                        parent_session_id=sid,
+                        allow_domains=opts.allow_domains,
+                        session_budget_tokens=min(limit, remaining),
+                        state_dir=opts.state_dir,
+                        workspace=workspace,
+                        depth=opts.depth + 1,
+                    ),
+                    cfg,
+                    provider,
+                    store=store,
+                    approver=approver,
+                    sandbox_factory=sandbox_factory,
+                    on_progress=on_progress,
+                )
+                return (child.session_id, child.status, child.message, child.steps, child.tokens)
+
+            targets = {
+                n: cfg.profile(n).description
+                for n in profile.delegate_profiles
+                if n in cfg.profiles and cfg.allows_profile(n)
+            }
             tools.register(DelegateTool(spawn, cfg.subagents.budget_tokens, profile.name, targets))
 
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
         context_ref: list[ContextManager] = []
         if skills:
-            tools.register(LoadSkillTool(
-                skills, lambda sk: context_ref[0].add_skill(sk.name, sk.body)))
+            tools.register(
+                LoadSkillTool(skills, lambda sk: context_ref[0].add_skill(sk.name, sk.body))
+            )
 
         tools = tools.for_profile(profile)
         system, prompt_version = load_system_prompt(cfg)
         context = ContextManager(
-            system=system + skills_index(skills), tools=[], task=opts.task, store=store,
+            system=system + skills_index(skills),
+            tools=[],
+            task=opts.task,
+            store=store,
             max_chars=cfg.loop.observation_max_chars,
             prune_failed_after=cfg.loop.prune_failed_after,
-            lazy_tools=len(tools) > cfg.loop.lazy_tools_over)
+            lazy_tools=len(tools) > cfg.loop.lazy_tools_over,
+        )
         context_ref.append(context)
         # Imágenes del usuario: el modelo las recibe en cada turno (máx. 5, por coste).
         context.images = [workspace / "in" / a.name for a in opts.attachments if a.is_image][:5]
@@ -384,38 +489,77 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
 
             def factory() -> DockerSandbox:
                 return DockerSandbox(
-                    session_id=sid, workspace=workspace, cfg=cfg.sandbox, policy=policy,
-                    network=cfg.segment_network(), proxy_url=cfg.segment_proxy(),
-                    segment=cfg.segment, allowlist_extra=extra, env=secrets)
+                    session_id=sid,
+                    workspace=workspace,
+                    cfg=cfg.sandbox,
+                    policy=policy,
+                    network=cfg.segment_network(),
+                    proxy_url=cfg.segment_proxy(),
+                    segment=cfg.segment,
+                    allowlist_extra=extra,
+                    env=secrets,
+                )
+
         sandbox: Sandbox = LazySandbox(factory)
 
-        store.emit(SessionStarted(
-            session_id=sid, trace_id=opts.trace_id or sid, agent_profile=profile.name,
-            channel=opts.channel, parent_session_id=opts.parent_session_id, task=opts.task,
-            model=provider.name, prompt_version=prompt_version,
-            skills_versions={n: s.full_version for n, s in skills.items()},
-            tools_versions=tools.versions(), config_hash=cfg.config_hash(),
-            harness_commit=harness_commit(cfg.root),
-            budget={"session_tokens": session_limit, "day_tokens": cfg.budget.day_tokens},
-            authorization_ref=profile.authorization_ref, dry_run=dry_run))
+        store.emit(
+            SessionStarted(
+                session_id=sid,
+                trace_id=opts.trace_id or sid,
+                agent_profile=profile.name,
+                channel=opts.channel,
+                parent_session_id=opts.parent_session_id,
+                task=opts.task,
+                model=provider.name,
+                prompt_version=prompt_version,
+                skills_versions={n: s.full_version for n, s in skills.items()},
+                tools_versions=tools.versions(),
+                config_hash=cfg.config_hash(),
+                harness_commit=harness_commit(cfg.root),
+                budget={"session_tokens": session_limit, "day_tokens": cfg.budget.day_tokens},
+                authorization_ref=profile.authorization_ref,
+                dry_run=dry_run,
+            )
+        )
 
         loop = AgentLoop(
-            session_id=sid, cfg=cfg, profile=profile, store=store, provider=provider,
-            tools=tools, context=context, budget=budget, killswitch=killswitch,
-            approver=approver or NoApprover(), workspace=workspace, sandbox=sandbox,
-            dry_run=dry_run, on_progress=on_progress)
+            session_id=sid,
+            cfg=cfg,
+            profile=profile,
+            store=store,
+            provider=provider,
+            tools=tools,
+            context=context,
+            budget=budget,
+            killswitch=killswitch,
+            approver=approver or NoApprover(),
+            workspace=workspace,
+            sandbox=sandbox,
+            dry_run=dry_run,
+            on_progress=on_progress,
+        )
 
         # Memoria relevante (RF-17) y contexto de la conversación. Los subagentes no: su
         # contexto limpio es justo lo que se busca (RF-02).
         if opts.depth == 0:
             memories = state.relevant(profile.name, opts.task, cfg.memory.inject_limit)
-            conversation = (await conversation_block(state, opts.thread_id, loop,
-                                                     cfg.memory.keep_recent_exchanges)
-                            if opts.thread_id else "")
+            conversation = (
+                await conversation_block(
+                    state, opts.thread_id, loop, cfg.memory.keep_recent_exchanges
+                )
+                if opts.thread_id
+                else ""
+            )
             context.task = compose_task(opts.task, render_memories(memories), conversation)
             if memories:
-                store.emit(MemoryEvent(session_id=sid, trace_id=sid, op="inject",
-                                       memory_ids=[m.id for m in memories]))
+                store.emit(
+                    MemoryEvent(
+                        session_id=sid,
+                        trace_id=sid,
+                        op="inject",
+                        memory_ids=[m.id for m in memories],
+                    )
+                )
         try:
             result = await loop.run()
         except asyncio.CancelledError:
@@ -425,12 +569,18 @@ async def _run(opts: SessionOptions, cfg: Config, provider: ModelProvider, store
             await sandbox.destroy()
             # Si el bucle reventó o fue cancelado, la sesión se cierra igualmente en auditoría.
             end = result or LoopResult("failed", "sesión interrumpida", 0, 0)
-            store.emit(SessionEnded(session_id=sid, trace_id=opts.trace_id or sid,
-                                    status=end.status, result=end.message, steps=end.steps))
+            store.emit(
+                SessionEnded(
+                    session_id=sid,
+                    trace_id=opts.trace_id or sid,
+                    status=end.status,
+                    result=end.message,
+                    steps=end.steps,
+                )
+            )
             if opts.thread_id and opts.depth == 0:
                 state.append_exchange(opts.thread_id, sid, opts.task, end.message, end.status)
     finally:
         await mcp.aclose()
 
-    return SessionResult(sid, result.status, result.message, result.steps, result.tokens,
-                         workspace)
+    return SessionResult(sid, result.status, result.message, result.steps, result.tokens, workspace)

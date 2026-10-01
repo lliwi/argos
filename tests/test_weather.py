@@ -37,12 +37,33 @@ PAGE = f"""<html><body><ul class="nav"><li>ruido</li></ul>
 def test_parse_hourly_extracts_numbers_per_hour():
     rows = parse_hourly(PAGE)
     assert rows == [
-        {"date": "2026-09-29", "hour": "22:00", "temp_c": 24.0, "rain_mm": 0.2, "rain_prob": 60,
-         "wind_kmh": 10.0, "wind_dir": "E"},
-        {"date": "2026-09-29", "hour": "23:00", "temp_c": 23.0, "rain_mm": 0.0, "rain_prob": 20,
-         "wind_kmh": 8.0, "wind_dir": "NE"},
-        {"date": "2026-09-30", "hour": "00:00", "temp_c": 22.0, "rain_mm": 1.5, "rain_prob": 90,
-         "wind_kmh": 25.0, "wind_dir": "SO"},
+        {
+            "date": "2026-09-29",
+            "hour": "22:00",
+            "temp_c": 24.0,
+            "rain_mm": 0.2,
+            "rain_prob": 60,
+            "wind_kmh": 10.0,
+            "wind_dir": "E",
+        },
+        {
+            "date": "2026-09-29",
+            "hour": "23:00",
+            "temp_c": 23.0,
+            "rain_mm": 0.0,
+            "rain_prob": 20,
+            "wind_kmh": 8.0,
+            "wind_dir": "NE",
+        },
+        {
+            "date": "2026-09-30",
+            "hour": "00:00",
+            "temp_c": 22.0,
+            "rain_mm": 1.5,
+            "rain_prob": 90,
+            "wind_kmh": 25.0,
+            "wind_dir": "SO",
+        },
     ]
 
 
@@ -78,9 +99,18 @@ async def test_hourly_tool_returns_summary(monkeypatch):
     monkeypatch.delenv("ARGOS_WEATHER_CITY", raising=False)
     data = json.loads(await w.hourly(hours=2))
     assert seen == ["barcelona"] and len(data["hourly"]) == 2
-    assert data["summary"] == [{"date": "2026-09-29", "hours": 2, "temp_min": 23.0,
-                                "temp_max": 24.0, "rain_total_mm": 0.2, "rain_prob_max": 60,
-                                "wind_max_kmh": 10.0, "rain_hours": ["22:00"]}]
+    assert data["summary"] == [
+        {
+            "date": "2026-09-29",
+            "hours": 2,
+            "temp_min": 23.0,
+            "temp_max": 24.0,
+            "rain_total_mm": 0.2,
+            "rain_prob_max": 60,
+            "wind_max_kmh": 10.0,
+            "rain_hours": ["22:00"],
+        }
+    ]
     await w.hourly(city="Madrid")
     assert seen[-1] == "madrid"
 

@@ -17,9 +17,13 @@ def make_provider(cfg: Config, name: str | None = None) -> ModelProvider:
     name = name or cfg.model.provider
     if name == "codex":
         c = cfg.model.codex
-        return CodexCliProvider(cfg.model.name, cfg.model.timeout_s, overrides=c.overrides,
-                                disable_features=c.disable_features,
-                                instructions=engine_instructions(cfg))
+        return CodexCliProvider(
+            cfg.model.name,
+            cfg.model.timeout_s,
+            overrides=c.overrides,
+            disable_features=c.disable_features,
+            instructions=engine_instructions(cfg),
+        )
     if name == "fake":
         return FakeProvider([])
     raise ValueError(f"provider desconocido: {name}")

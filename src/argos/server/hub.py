@@ -26,7 +26,7 @@ from argos.model.base import ModelProvider
 class EventBus:
     def __init__(self) -> None:
         self._subs: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
-        self._root: dict[str, str] = {}   # sesión -> sesión raíz
+        self._root: dict[str, str] = {}  # sesión -> sesión raíz
 
     def root_of(self, session_id: str) -> str:
         return self._root.get(session_id, session_id)
@@ -58,10 +58,16 @@ class PendingApproval:
     future: asyncio.Future[tuple[Decision, str, str]]
 
     def as_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "session_id": self.session_id, "action": self.request.action,
-                "risk_class": self.request.risk_class, "details": self.request.details,
-                "timeout_s": self.request.timeout_s, "origin_channel": self.origin_channel,
-                "created_at": self.created_at}
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "action": self.request.action,
+            "risk_class": self.request.risk_class,
+            "details": self.request.details,
+            "timeout_s": self.request.timeout_s,
+            "origin_channel": self.origin_channel,
+            "created_at": self.created_at,
+        }
 
 
 class ApprovalHub:
@@ -72,15 +78,23 @@ class ApprovalHub:
     def approver_for(self, session_id: str, origin_channel: str) -> Approver:
         return _SessionApprover(self, session_id, origin_channel)
 
-    async def ask(self, session_id: str, origin: str,
-                  req: ApprovalRequest) -> tuple[Decision, str, str]:
+    async def ask(
+        self, session_id: str, origin: str, req: ApprovalRequest
+    ) -> tuple[Decision, str, str]:
         loop = asyncio.get_running_loop()
-        pending = PendingApproval(uuid.uuid4().hex[:12], session_id, req, origin,
-                                  datetime.now(UTC).isoformat(), loop.create_future())
+        pending = PendingApproval(
+            uuid.uuid4().hex[:12],
+            session_id,
+            req,
+            origin,
+            datetime.now(UTC).isoformat(),
+            loop.create_future(),
+        )
         self.pending[pending.id] = pending
         # Se publica en el flujo de la sesión (y su raíz) como evento de canal, no de auditoría.
-        self.bus.publish({"type": "approval_request", "session_id": session_id,
-                          **pending.as_dict()})
+        self.bus.publish(
+            {"type": "approval_request", "session_id": session_id, **pending.as_dict()}
+        )
         try:
             return await asyncio.wait_for(asyncio.shield(pending.future), req.timeout_s)
         except TimeoutError:
@@ -108,8 +122,7 @@ class _SessionApprover:
         self.channel = origin
 
     async def request(self, req: ApprovalRequest) -> Decision:
-        decision, self.name, self.channel = await self._hub.ask(self._session_id, self.channel,
-                                                                req)
+        decision, self.name, self.channel = await self._hub.ask(self._session_id, self.channel, req)
         return decision
 
 
@@ -125,32 +138,50 @@ class RunningSession:
 
 
 class SessionManager:
-    def __init__(self, cfg: Config, store: AuditStore, provider_factory,
-                 hub: ApprovalHub, sandbox_factory=None) -> None:
+    def __init__(
+        self,
+        cfg: Config,
+        store: AuditStore,
+        provider_factory,
+        hub: ApprovalHub,
+        sandbox_factory=None,
+    ) -> None:
         self.cfg = cfg
-        self.sandbox_factory = sandbox_factory   # tests: sandbox en memoria
+        self.sandbox_factory = sandbox_factory  # tests: sandbox en memoria
         self.store = store
         self.provider_factory = provider_factory
         self.hub = hub
         self.sessions: dict[str, RunningSession] = {}
 
-    def start(self, opts: SessionOptions, *, interactive: bool = True,
-              provider: ModelProvider | None = None,
-              tags: dict[str, str] | None = None) -> str:
+    def start(
+        self,
+        opts: SessionOptions,
+        *,
+        interactive: bool = True,
+        provider: ModelProvider | None = None,
+        tags: dict[str, str] | None = None,
+    ) -> str:
         """Lanza la sesión y devuelve su id sin esperar. `interactive=False` (tareas programadas
         o webhooks) usa un aprobador que siempre deniega: nadie está mirando (RF-GOV-05)."""
         if not self.cfg.allows_profile(opts.profile):
-            raise SessionRefused(f"el perfil {opts.profile!r} no pertenece al segmento "
-                                 f"{self.cfg.segment!r}")
+            raise SessionRefused(
+                f"el perfil {opts.profile!r} no pertenece al segmento {self.cfg.segment!r}"
+            )
         sid = opts.session_id or uuid.uuid4().hex
         opts.session_id = sid
         approver = self.hub.approver_for(sid, opts.channel) if interactive else NoApprover()
-        coro = run_session(opts, self.cfg, provider or self.provider_factory(),
-                           store=self.store, approver=approver,
-                           sandbox_factory=self.sandbox_factory)
+        coro = run_session(
+            opts,
+            self.cfg,
+            provider or self.provider_factory(),
+            store=self.store,
+            approver=approver,
+            sandbox_factory=self.sandbox_factory,
+        )
         task = asyncio.create_task(coro, name=f"session-{sid[:12]}")
-        entry = RunningSession(sid, task, opts.channel, opts.profile,
-                               datetime.now(UTC).isoformat(), tags=tags or {})
+        entry = RunningSession(
+            sid, task, opts.channel, opts.profile, datetime.now(UTC).isoformat(), tags=tags or {}
+        )
         self.sessions[sid] = entry
         task.add_done_callback(lambda t, e=entry: self._finished(e, t))
         return sid
@@ -162,8 +193,12 @@ class SessionManager:
             entry.result = {"status": "failed", "message": f"{type(exc).__name__}: {exc}"}
         else:
             r = task.result()
-            entry.result = {"status": r.status, "message": r.message, "steps": r.steps,
-                            "tokens": r.tokens}
+            entry.result = {
+                "status": r.status,
+                "message": r.message,
+                "steps": r.steps,
+                "tokens": r.tokens,
+            }
 
     def running(self) -> list[RunningSession]:
         return [s for s in self.sessions.values() if not s.task.done()]

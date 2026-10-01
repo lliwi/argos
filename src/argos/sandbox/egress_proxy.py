@@ -63,7 +63,8 @@ class Policy:
         except (FileNotFoundError, json.JSONDecodeError):
             pass  # sin política válida => solo lo último conocido (por defecto: nada)
         return list(self._data.get("default", [])) + list(
-            self._data.get("clients", {}).get(client_ip, []))
+            self._data.get("clients", {}).get(client_ip, [])
+        )
 
 
 class EgressProxy:
@@ -71,10 +72,18 @@ class EgressProxy:
         self.policy = Policy(directory / "policy.json")
         self.events_path = directory / "events.jsonl"
 
-    def record(self, client_ip: str, method: str, host: str, port: int,
-               decision: str, reason: str) -> None:
-        ev = {"ts": datetime.now(UTC).isoformat(), "client_ip": client_ip, "method": method,
-              "host": host, "port": port, "decision": decision, "reason": reason}
+    def record(
+        self, client_ip: str, method: str, host: str, port: int, decision: str, reason: str
+    ) -> None:
+        ev = {
+            "ts": datetime.now(UTC).isoformat(),
+            "client_ip": client_ip,
+            "method": method,
+            "host": host,
+            "port": port,
+            "decision": decision,
+            "reason": reason,
+        }
         with open(self.events_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(ev) + "\n")
 
@@ -115,7 +124,8 @@ class EgressProxy:
 
         try:
             up_reader, up_writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port), timeout=20)
+                asyncio.open_connection(host, port), timeout=20
+            )
         except (OSError, TimeoutError) as exc:
             await self._reply(writer, 502, f"argos-egress: no se pudo conectar a {host}: {exc}")
             return
@@ -125,11 +135,16 @@ class EgressProxy:
             await writer.drain()
         else:
             path = "/" + target[7:].split("/", 1)[1] if "/" in target[7:] else "/"
-            headers = [h for h in header_lines if h and not h.lower().startswith(
-                ("proxy-connection:", "proxy-authorization:"))]
+            headers = [
+                h
+                for h in header_lines
+                if h and not h.lower().startswith(("proxy-connection:", "proxy-authorization:"))
+            ]
             up_writer.write(
                 (f"{method} {path} {version}\r\n" + "\r\n".join(headers) + "\r\n\r\n").encode(
-                    "latin-1"))
+                    "latin-1"
+                )
+            )
             await up_writer.drain()
 
         await asyncio.gather(self._pipe(reader, up_writer), self._pipe(up_reader, writer))
@@ -154,7 +169,9 @@ class EgressProxy:
         reason = {400: "Bad Request", 403: "Forbidden", 502: "Bad Gateway"}.get(code, "Error")
         writer.write(
             f"HTTP/1.1 {code} {reason}\r\nContent-Type: text/plain\r\nContent-Length: "
-            f"{len(body)}\r\nX-Argos-Egress: {code}\r\nConnection: close\r\n\r\n".encode() + body)
+            f"{len(body)}\r\nX-Argos-Egress: {code}\r\nConnection: close\r\n\r\n".encode()
+            + body
+        )
         try:
             await writer.drain()
         finally:

@@ -29,16 +29,31 @@ from argos.attachments import (
     safe_name,
 )
 
-COMMANDS = ["/adjuntar", "/adjuntos", "/quitar", "/new", "/threads", "/memoria",
-            "/herramientas", "/help"]
-HINT = ("Enter enviar · Mayús-Enter salto de línea · Ctrl-V pegar imagen · /adjuntar ruta · "
-        "Ctrl-D salir")
+COMMANDS = [
+    "/adjuntar",
+    "/adjuntos",
+    "/quitar",
+    "/new",
+    "/threads",
+    "/memoria",
+    "/herramientas",
+    "/help",
+]
+HINT = (
+    "Enter enviar · Mayús-Enter salto de línea · Ctrl-V pegar imagen · /adjuntar ruta · "
+    "Ctrl-D salir"
+)
 # Mayús/Alt+Enter llegan como secuencias propias solo si el terminal las distingue: xterm
 # modifyOtherKeys (`ESC[27;<mod>;13~`, lo que usa Herdr) o protocolo kitty (`ESC[13;<mod>u`).
 # prompt_toolkit trata algunas como Enter normal (enviaría); aquí son salto de línea.
-NEWLINE_SEQUENCES = ("\x1b[27;2;13~", "\x1b[13;2u",      # Mayús+Enter
-                     "\x1b[27;3;13~", "\x1b[13;3u",      # Alt+Enter
-                     "\x1b[27;4;13~", "\x1b[13;4u")      # Mayús+Alt+Enter
+NEWLINE_SEQUENCES = (
+    "\x1b[27;2;13~",
+    "\x1b[13;2u",  # Mayús+Enter
+    "\x1b[27;3;13~",
+    "\x1b[13;3u",  # Alt+Enter
+    "\x1b[27;4;13~",
+    "\x1b[13;4u",
+)  # Mayús+Alt+Enter
 MODIFY_OTHER_KEYS_ON = "\x1b[>4;1m"
 MODIFY_OTHER_KEYS_OFF = "\x1b[>4;0m"
 
@@ -48,10 +63,11 @@ def _register_newline_sequences() -> None:
     from prompt_toolkit.keys import Keys
 
     for seq in NEWLINE_SEQUENCES:
-        ANSI_SEQUENCES[seq] = Keys.ControlJ     # ligado a «insertar salto de línea»
+        ANSI_SEQUENCES[seq] = Keys.ControlJ  # ligado a «insertar salto de línea»
 
 
 # --------------------------------------------------------------------------- adjuntos
+
 
 def load_file(path: str | Path) -> Attachment:
     p = Path(path).expanduser()
@@ -106,7 +122,7 @@ def clipboard_image() -> tuple[bytes, str] | None:
                 return data, "." + mime.split("/", 1)[1].split("+")[0].replace("jpeg", "jpg")
         return None
     if shutil.which("xclip"):
-        targets = (_run(["xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"]) or b"")
+        targets = _run(["xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"]) or b""
         if b"image/png" in targets:
             data = _run(["xclip", "-selection", "clipboard", "-t", "image/png", "-o"], timeout=5)
             if data:
@@ -160,12 +176,17 @@ class Pending:
 
 # --------------------------------------------------------------------------- prompt
 
+
 class ChatInput:
     """Prompt interactivo del chat. `read()` devuelve el texto (o lanza EOFError con Ctrl-D)."""
 
-    def __init__(self, history_path: Path, pending: Pending,
-                 image_source: Callable[[], tuple[bytes, str] | None] = clipboard_image,
-                 text_source: Callable[[], str | None] = clipboard_text) -> None:
+    def __init__(
+        self,
+        history_path: Path,
+        pending: Pending,
+        image_source: Callable[[], tuple[bytes, str] | None] = clipboard_image,
+        text_source: Callable[[], str | None] = clipboard_text,
+    ) -> None:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import FileHistory
 
@@ -177,9 +198,14 @@ class ChatInput:
         _register_newline_sequences()
         history_path.parent.mkdir(parents=True, exist_ok=True)
         self.session: PromptSession[str] = PromptSession(
-            multiline=True, key_bindings=self._bindings(), history=FileHistory(str(history_path)),
-            completer=_completer_class()(), complete_while_typing=False,
-            bottom_toolbar=self._toolbar, prompt_continuation="     … ")
+            multiline=True,
+            key_bindings=self._bindings(),
+            history=FileHistory(str(history_path)),
+            completer=_completer_class()(),
+            complete_while_typing=False,
+            bottom_toolbar=self._toolbar,
+            prompt_continuation="     … ",
+        )
 
     def say(self, msg: str) -> None:
         self.flash, self._flash_until = msg, time.monotonic() + 6
@@ -189,8 +215,9 @@ class ChatInput:
         if self.flash and time.monotonic() < self._flash_until:
             parts.append(self.flash)
         if self.pending.items:
-            parts.append(f"📎 {len(self.pending.items)}: {self.pending.summary()} "
-                         "(/quitar para descartar)")
+            parts.append(
+                f"📎 {len(self.pending.items)}: {self.pending.summary()} (/quitar para descartar)"
+            )
         return " · ".join(parts) or HINT
 
     def paste(self, data: str) -> str | None:
@@ -211,8 +238,9 @@ class ChatInput:
         if image:
             data, ext = image
             try:
-                att = self.pending.add(Attachment(f"portapapeles-{time.strftime('%H%M%S')}{ext}",
-                                                  data))
+                att = self.pending.add(
+                    Attachment(f"portapapeles-{time.strftime('%H%M%S')}{ext}", data)
+                )
                 self.say(f"imagen adjuntada: {att.name}")
             except AttachmentError as exc:
                 self.say(f"⚠ {exc}")
@@ -232,7 +260,7 @@ class ChatInput:
         @kb.add("enter")
         def _(event) -> None:
             buf = event.current_buffer
-            if buf.complete_state:          # Enter en el menú de autocompletado: elegir
+            if buf.complete_state:  # Enter en el menú de autocompletado: elegir
                 buf.complete_state = None
                 return
             buf.validate_and_handle()
@@ -285,7 +313,7 @@ def _completer_class():
         def get_completions(self, document, complete_event):
             text = document.text_before_cursor
             if text.startswith("/adjuntar "):
-                arg = text[len("/adjuntar "):].split(" ")[-1]
+                arg = text[len("/adjuntar ") :].split(" ")[-1]
                 yield from self._paths.get_completions(Document(arg, len(arg)), complete_event)
             elif text.startswith("/") and " " not in text:
                 for cmd in COMMANDS:
@@ -293,4 +321,3 @@ def _completer_class():
                         yield Completion(cmd, start_position=-len(text))
 
     return Impl
-

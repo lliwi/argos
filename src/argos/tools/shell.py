@@ -16,17 +16,36 @@ from argos.pentest import Scope, ScopeError
 from argos.tools.base import Tool, ToolContext, ToolError, ToolResult
 
 DESTRUCTIVE = [
-    re.compile(p) for p in (
+    re.compile(p)
+    for p in (
         r"\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/",  # rm -rf sobre rutas absolutas
         r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*f|\brm\s+-[a-zA-Z]*f[a-zA-Z]*r",
-        r"\bmkfs(\.\w+)?\b", r"\bdd\s+.*\bof=/dev/", r">\s*/dev/sd[a-z]",
-        r"\bshutdown\b|\breboot\b|\bpoweroff\b", r":\(\)\s*\{\s*:\|:&\s*\};:",
-        r"\bchmod\s+-R\s+0?777\s+/", r"\bgit\s+push\s+.*--force\b",
+        r"\bmkfs(\.\w+)?\b",
+        r"\bdd\s+.*\bof=/dev/",
+        r">\s*/dev/sd[a-z]",
+        r"\bshutdown\b|\breboot\b|\bpoweroff\b",
+        r":\(\)\s*\{\s*:\|:&\s*\};:",
+        r"\bchmod\s+-R\s+0?777\s+/",
+        r"\bgit\s+push\s+.*--force\b",
     )
 ]
 OFFENSIVE_TOOLS = {
-    "nmap", "masscan", "sqlmap", "nikto", "hydra", "medusa", "wpscan", "gobuster", "ffuf",
-    "dirb", "nuclei", "metasploit", "msfconsole", "john", "hashcat", "responder",
+    "nmap",
+    "masscan",
+    "sqlmap",
+    "nikto",
+    "hydra",
+    "medusa",
+    "wpscan",
+    "gobuster",
+    "ffuf",
+    "dirb",
+    "nuclei",
+    "metasploit",
+    "msfconsole",
+    "john",
+    "hashcat",
+    "responder",
 }
 
 INSTALL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -40,9 +59,12 @@ INSTALL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 # envoltorios típicos. Heurística: la contención real es la allowlist de egress + el scope.
 _OFFENSIVE_CMD = re.compile(
     r"(?:^|[;&|(`\"']\s*|\b(?:sudo|env|nohup|exec|xargs|timeout\s+\S+)\s+)(?:\S*/)?(?:"
-    + "|".join(sorted(OFFENSIVE_TOOLS)) + r")(?=\s|$|[;&|\"'])")
+    + "|".join(sorted(OFFENSIVE_TOOLS))
+    + r")(?=\s|$|[;&|\"'])"
+)
 _HOSTLIKE = re.compile(
-    r"(?:https?://)?((?:\d{1,3}\.){3}\d{1,3}(?:/\d+)?|(?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+    r"(?:https?://)?((?:\d{1,3}\.){3}\d{1,3}(?:/\d+)?|(?:[a-z0-9-]+\.)+[a-z]{2,})", re.I
+)
 
 
 def parse_installs(command: str) -> list[tuple[str, str, str | None]]:
@@ -82,9 +104,11 @@ class ShellExecTool(Tool):
     version = "0.1.0"
     description = (
         "Ejecuta un comando bash en el sandbox Linux de la sesión (cwd /workspace/out). "
-        "Devuelve exit_code, stdout y stderr.")
+        "Devuelve exit_code, stdout y stderr."
+    )
     parameters = {
-        "type": "object", "required": ["command"],
+        "type": "object",
+        "required": ["command"],
         "properties": {
             "command": {"type": "string"},
             "timeout_s": {"type": "integer", "description": "opcional, máx. 600"},
@@ -114,8 +138,16 @@ class ShellExecTool(Tool):
                 raise ToolError(str(exc), ErrorKind.VALIDATION_ERROR) from exc
 
         if ctx.dry_run:
-            ctx.emit(ShellExec(session_id=ctx.session_id, turn_id=ctx.turn_id, command=command,
-                               cwd="/workspace/out", exit_code=None, dry_run=True))
+            ctx.emit(
+                ShellExec(
+                    session_id=ctx.session_id,
+                    turn_id=ctx.turn_id,
+                    command=command,
+                    cwd="/workspace/out",
+                    exit_code=None,
+                    dry_run=True,
+                )
+            )
             return ToolResult(f"[dry-run] se ejecutaría: {command}", data={"dry_run": True})
 
         if ctx.sandbox is None:
@@ -128,30 +160,53 @@ class ShellExecTool(Tool):
 
         stdout_ref = ctx.store.put_blob(res.stdout) if res.stdout else None
         stderr_ref = ctx.store.put_blob(res.stderr) if res.stderr else None
-        ctx.emit(ShellExec(
-            session_id=ctx.session_id, turn_id=ctx.turn_id, command=command, cwd="/workspace/out",
-            exit_code=res.exit_code, stdout_ref=stdout_ref, stderr_ref=stderr_ref,
-            duration_ms=res.duration_ms, sandbox_id=ctx.sandbox.id))
+        ctx.emit(
+            ShellExec(
+                session_id=ctx.session_id,
+                turn_id=ctx.turn_id,
+                command=command,
+                cwd="/workspace/out",
+                exit_code=res.exit_code,
+                stdout_ref=stdout_ref,
+                stderr_ref=stderr_ref,
+                duration_ms=res.duration_ms,
+                sandbox_id=ctx.sandbox.id,
+            )
+        )
 
         for manager, package, version in parse_installs(command):
-            ctx.emit(PackageInstall(
-                session_id=ctx.session_id, turn_id=ctx.turn_id, manager=manager,
-                package=package, version=version, status="ok" if res.exit_code == 0 else "error"))
+            ctx.emit(
+                PackageInstall(
+                    session_id=ctx.session_id,
+                    turn_id=ctx.turn_id,
+                    manager=manager,
+                    package=package,
+                    version=version,
+                    status="ok" if res.exit_code == 0 else "error",
+                )
+            )
 
         blocked = ctx.sandbox.egress_blocked_since_last()
         for b in blocked:
-            ctx.emit(ErrorEvent(session_id=ctx.session_id, turn_id=ctx.turn_id,
-                                kind=ErrorKind.EGRESS_BLOCKED,
-                                message=f"{b.host}:{b.port} — {b.reason}"))
+            ctx.emit(
+                ErrorEvent(
+                    session_id=ctx.session_id,
+                    turn_id=ctx.turn_id,
+                    kind=ErrorKind.EGRESS_BLOCKED,
+                    message=f"{b.host}:{b.port} — {b.reason}",
+                )
+            )
 
         output = f"exit_code={res.exit_code}\n--- stdout ---\n{res.stdout}"
         if res.stderr:
             output += f"\n--- stderr ---\n{res.stderr}"
         if blocked:
             output += "\n--- egress bloqueado ---\n" + "\n".join(
-                f"{b.host}: {b.reason}" for b in blocked)
+                f"{b.host}: {b.reason}" for b in blocked
+            )
         if res.timed_out:
             return ToolResult(output + "\n(timeout)", ok=False, error_kind=ErrorKind.TIMEOUT)
         # Un exit != 0 es una observación válida, no un fallo de la tool: el agente decide.
-        return ToolResult(output, data={"exit_code": res.exit_code,
-                                        "egress_blocked": [b.host for b in blocked]})
+        return ToolResult(
+            output, data={"exit_code": res.exit_code, "egress_blocked": [b.host for b in blocked]}
+        )

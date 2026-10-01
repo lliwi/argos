@@ -12,7 +12,8 @@ from argos.skills import SkillError, SkillRegistry, parse_skill
 def write_skill(path, name="demo", body="Haz X con cuidado.", version="1.0.0"):
     path.mkdir(parents=True, exist_ok=True)
     (path / "SKILL.md").write_text(
-        f"---\nname: {name}\ndescription: Skill de prueba\nversion: {version}\n---\n{body}\n")
+        f"---\nname: {name}\ndescription: Skill de prueba\nversion: {version}\n---\n{body}\n"
+    )
     return path
 
 
@@ -21,12 +22,15 @@ def test_parse_and_version_hash(tmp_path):
     assert sk.name == "demo" and sk.full_version.startswith("1.0.0@") and "Haz X" in sk.body
 
 
-@pytest.mark.parametrize("text", [
-    "sin front-matter",
-    "---\nname: Mal Nombre\ndescription: x\n---\nb",
-    "---\nname: ok\n---\ncuerpo",
-    "---\nname: ok\ndescription: d\n---\n",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "sin front-matter",
+        "---\nname: Mal Nombre\ndescription: x\n---\nb",
+        "---\nname: ok\n---\ncuerpo",
+        "---\nname: ok\ndescription: d\n---\n",
+    ],
+)
 def test_invalid_skills_rejected(tmp_path, text):
     (tmp_path / "SKILL.md").write_text(text)
     with pytest.raises(SkillError):
@@ -46,12 +50,19 @@ def test_install_and_update(tmp_path):
 
 async def test_progressive_disclosure_and_audit(cfg, store, fake_sandbox):
     """RF-SK-05/06/07: índice barato, cuerpo al activarse, activación y versión auditadas."""
-    provider = FakeProvider([
-        {"type": "tool_call", "tool": "skills.load", "args": {"name": "data-analysis"}},
-        {"type": "final", "message": "ok"},
-    ])
-    res = await run_session(SessionOptions(task="analiza"), cfg, provider, store=store,
-                            sandbox_factory=lambda: fake_sandbox)
+    provider = FakeProvider(
+        [
+            {"type": "tool_call", "tool": "skills.load", "args": {"name": "data-analysis"}},
+            {"type": "final", "message": "ok"},
+        ]
+    )
+    res = await run_session(
+        SessionOptions(task="analiza"),
+        cfg,
+        provider,
+        store=store,
+        sandbox_factory=lambda: fake_sandbox,
+    )
     before, after = provider.requests[0].render(), provider.requests[1].render()
     assert "- data-analysis:" in before and "df.dtypes" not in before
     assert "## Skill activa: data-analysis" in after and "df.dtypes" in after
@@ -67,7 +78,8 @@ async def test_profile_skill_filter(root, store, fake_sandbox):
     cfg = load_config(root, {"data_dir": str(root / "var")})
     cfg.profiles["personal"].skills = ["sandbox-*"]
     provider = FakeProvider([{"type": "final", "message": "ok"}])
-    await run_session(SessionOptions(task="t"), cfg, provider, store=store,
-                      sandbox_factory=lambda: fake_sandbox)
+    await run_session(
+        SessionOptions(task="t"), cfg, provider, store=store, sandbox_factory=lambda: fake_sandbox
+    )
     prompt = provider.requests[0].render()
     assert "sandbox-troubleshooting" in prompt and "data-analysis" not in prompt

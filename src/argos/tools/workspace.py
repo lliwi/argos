@@ -34,8 +34,11 @@ def _sha(data: bytes) -> str:
 class ReadFile(Tool):
     name = "workspace.read_file"
     description = "Lee un fichero de texto del workspace (rutas 'in/...' o 'out/...')."
-    parameters = {"type": "object", "required": ["path"],
-                  "properties": {"path": {"type": "string"}}}
+    parameters = {
+        "type": "object",
+        "required": ["path"],
+        "properties": {"path": {"type": "string"}},
+    }
     risk_class = RiskClass.READ
     idempotent = True
 
@@ -44,17 +47,27 @@ class ReadFile(Tool):
         if not path.is_file():
             raise ToolError(f"no existe: {args.get('path')}")
         data = path.read_bytes()[:MAX_READ]
-        ctx.emit(FileEvent(session_id=ctx.session_id, turn_id=ctx.turn_id,
-                           path=str(path.relative_to(ctx.workspace)), op="read",
-                           bytes=len(data), hash=_sha(data)))
+        ctx.emit(
+            FileEvent(
+                session_id=ctx.session_id,
+                turn_id=ctx.turn_id,
+                path=str(path.relative_to(ctx.workspace)),
+                op="read",
+                bytes=len(data),
+                hash=_sha(data),
+            )
+        )
         return ToolResult(data.decode("utf-8", errors="replace"))
 
 
 class WriteFile(Tool):
     name = "workspace.write_file"
     description = "Escribe (sobrescribe) un fichero de texto en 'out/...'."
-    parameters = {"type": "object", "required": ["path", "content"],
-                  "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}
+    parameters = {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+    }
     risk_class = RiskClass.WRITE
     idempotent = True  # escribir el mismo contenido dos veces tiene el mismo efecto
 
@@ -67,8 +80,16 @@ class WriteFile(Tool):
         op = "write" if path.exists() else "create"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        ctx.emit(FileEvent(session_id=ctx.session_id, turn_id=ctx.turn_id, path=rel, op=op,
-                           bytes=len(data), hash=_sha(data)))
+        ctx.emit(
+            FileEvent(
+                session_id=ctx.session_id,
+                turn_id=ctx.turn_id,
+                path=rel,
+                op=op,
+                bytes=len(data),
+                hash=_sha(data),
+            )
+        )
         return ToolResult(f"escritos {len(data)} bytes en {rel}")
 
 
@@ -85,9 +106,17 @@ class ListFiles(Tool):
             raise ToolError(f"no es un directorio: {args.get('path')}")
         entries = sorted(
             f"{p.relative_to(ctx.workspace)}{'/' if p.is_dir() else f' ({p.stat().st_size} B)'}"
-            for p in base.rglob("*") if ".." not in p.parts)[:500]
-        ctx.emit(FileEvent(session_id=ctx.session_id, turn_id=ctx.turn_id,
-                           path=str(base.relative_to(ctx.workspace)), op="list"))
+            for p in base.rglob("*")
+            if ".." not in p.parts
+        )[:500]
+        ctx.emit(
+            FileEvent(
+                session_id=ctx.session_id,
+                turn_id=ctx.turn_id,
+                path=str(base.relative_to(ctx.workspace)),
+                op="list",
+            )
+        )
         return ToolResult("\n".join(entries) or "(vacío)")
 
 

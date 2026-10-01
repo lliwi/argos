@@ -12,8 +12,20 @@ from typing import Any
 
 import yaml
 
-SECRET_FIELDS = frozenset({"api_key", "apikey", "token", "password", "passwd", "secret",
-                           "passphrase", "key", "access_token", "community"})
+SECRET_FIELDS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "token",
+        "password",
+        "passwd",
+        "secret",
+        "passphrase",
+        "key",
+        "access_token",
+        "community",
+    }
+)
 
 
 def inventory_path(root: Path) -> Path:

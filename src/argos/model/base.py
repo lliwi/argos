@@ -49,7 +49,7 @@ class Usage:
 class ToolSpec:
     name: str
     description: str
-    parameters: dict[str, Any] | None   # None => no cargada (carga diferida, RF-10)
+    parameters: dict[str, Any] | None  # None => no cargada (carga diferida, RF-10)
 
 
 @dataclass
@@ -74,14 +74,19 @@ class ModelRequest:
         """
         tools = "\n".join(
             f"- {t.name}: {t.description}\n"
-            + (f"  parámetros: {json.dumps(t.parameters, ensure_ascii=False)}"
-               if t.parameters is not None else "  (parámetros no cargados: usa tools.load)")
-            for t in self.tools)
+            + (
+                f"  parámetros: {json.dumps(t.parameters, ensure_ascii=False)}"
+                if t.parameters is not None
+                else "  (parámetros no cargados: usa tools.load)"
+            )
+            for t in self.tools
+        )
         parts = [self.system.strip(), "", "## Herramientas disponibles", tools, "", "## Historial"]
         for m in self.messages:
             parts.append(f"### {m.role}\n{m.content}")
         parts += [
-            "", "## Tu decisión",
+            "",
+            "## Tu decisión",
             'Responde SOLO con JSON: {"type": "tool_call"|"final", "tool": "<nombre o vacío>", '
             '"args_json": "<objeto JSON serializado>", "message": "<texto>"}',
         ]
@@ -105,14 +110,15 @@ class ModelResponse:
     raw_text: str
     # Acciones que el motor intentó por su cuenta (contrato violado), p. ej. comandos de Codex.
     violations: list[str] = field(default_factory=list)
-    model: str = ""   # modelo efectivamente usado
+    model: str = ""  # modelo efectivamente usado
 
 
 class ModelProvider(Protocol):
     name: str
 
-    async def complete(self, request: ModelRequest,
-                       route: Route | None = None) -> ModelResponse: ...
+    async def complete(
+        self, request: ModelRequest, route: Route | None = None
+    ) -> ModelResponse: ...
 
 
 # JSON Schema de la decisión para salidas estructuradas. Todos los campos son obligatorios y

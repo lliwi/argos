@@ -32,8 +32,10 @@ ACTION = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent
 ACTION_META = {"argos_risk": "destructive"}
 
 _DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-_LABELS = re.compile(r"^(\*|[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?)"
-                     r"(\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?)*$")
+_LABELS = re.compile(
+    r"^(\*|[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?)"
+    r"(\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?)*$"
+)
 _RECORD_ID = re.compile(r"^[0-9a-f]{32}$")
 # Tipos simples (contenido = cadena). SRV/CAA/etc. llevan datos estructurados: fuera de alcance.
 TYPES = {"A", "AAAA", "CNAME", "TXT", "MX"}
@@ -49,8 +51,10 @@ server = MCPServer(name="cloudflare", version=VERSION)
 
 def _configured() -> str | None:
     if not os.environ.get("ARGOS_CF_TOKEN"):
-        return ("Cloudflare no está configurado: falta el api_key (token) en "
-                "secrets/inventory.yaml (servicio 'cloudflare').")
+        return (
+            "Cloudflare no está configurado: falta el api_key (token) en "
+            "secrets/inventory.yaml (servicio 'cloudflare')."
+        )
     return None
 
 
@@ -64,8 +68,10 @@ def _dry_run() -> bool:
 
 def _err(exc: CloudflareError, what: str) -> str:
     if isinstance(exc, CloudflarePermissionError):
-        return (f"SIN PERMISO: el token de Cloudflare no tiene acceso ({exc}). "
-                f"Permiso necesario: {PERM_HINT[what]}.")
+        return (
+            f"SIN PERMISO: el token de Cloudflare no tiene acceso ({exc}). "
+            f"Permiso necesario: {PERM_HINT[what]}."
+        )
     return f"ERROR: {exc}"
 
 
@@ -91,7 +97,7 @@ def _content_ok(rtype: str, content: str) -> bool:
         return ":" in content and bool(re.fullmatch(r"[0-9a-fA-F:.]+", content))
     if rtype in ("CNAME", "MX"):
         return bool(_DOMAIN.match(content.lower().rstrip(".")))
-    return True   # TXT: texto libre de una línea
+    return True  # TXT: texto libre de una línea
 
 
 async def _zone(client: CloudflareClient, zone: str) -> dict | None:
@@ -103,9 +109,15 @@ async def _zone(client: CloudflareClient, zone: str) -> dict | None:
 
 
 def _brief(r: dict) -> dict:
-    return {"id": r.get("id"), "type": r.get("type"), "name": r.get("name"),
-            "content": r.get("content"), "proxied": r.get("proxied"), "ttl": r.get("ttl"),
-            **({"priority": r["priority"]} if r.get("priority") is not None else {})}
+    return {
+        "id": r.get("id"),
+        "type": r.get("type"),
+        "name": r.get("name"),
+        "content": r.get("content"),
+        "proxied": r.get("proxied"),
+        "ttl": r.get("ttl"),
+        **({"priority": r["priority"]} if r.get("priority") is not None else {}),
+    }
 
 
 @server.tool(annotations=READ)
@@ -115,9 +127,19 @@ async def zones() -> str:
         return f"NO CONFIGURADO: {msg}"
     client = _client()
     try:
-        return json.dumps([{"name": z.get("name"), "id": z.get("id"), "status": z.get("status"),
-                            "plan": (z.get("plan") or {}).get("name")}
-                           for z in await client.zones()], ensure_ascii=False, indent=2)
+        return json.dumps(
+            [
+                {
+                    "name": z.get("name"),
+                    "id": z.get("id"),
+                    "status": z.get("status"),
+                    "plan": (z.get("plan") or {}).get("name"),
+                }
+                for z in await client.zones()
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
     except CloudflareError as exc:
         return _err(exc, "dns")
     finally:
@@ -150,8 +172,15 @@ async def dns_list(zone: str, type: str = "", name: str = "") -> str:
 
 
 @server.tool(annotations=ACTION, meta=ACTION_META)
-async def dns_create(zone: str, type: str, name: str, content: str, proxied: bool = False,
-                     ttl: int = 1, priority: int = 10) -> str:
+async def dns_create(
+    zone: str,
+    type: str,
+    name: str,
+    content: str,
+    proxied: bool = False,
+    ttl: int = 1,
+    priority: int = 10,
+) -> str:
     """Crea un registro DNS (type A, AAAA, CNAME, TXT o MX). name relativo ("www", "@") o FQDN
     dentro de la zona. ttl=1 es automático. proxied solo aplica a A/AAAA/CNAME. Requiere
     aprobación."""
@@ -188,8 +217,9 @@ async def dns_create(zone: str, type: str, name: str, content: str, proxied: boo
 
 
 @server.tool(annotations=ACTION, meta=ACTION_META)
-async def dns_update(zone: str, record_id: str, content: str = "", proxied: str = "",
-                     ttl: int = 0) -> str:
+async def dns_update(
+    zone: str, record_id: str, content: str = "", proxied: str = "", ttl: int = 0
+) -> str:
     """Modifica un registro DNS existente (id de cloudflare.dns_list): content nuevo, proxied
     ("true"/"false") y/o ttl. Solo cambia lo indicado. Requiere aprobación."""
     if msg := _configured():
@@ -205,8 +235,9 @@ async def dns_update(zone: str, record_id: str, content: str = "", proxied: str 
         z = await _zone(client, zone)
         if not z:
             return f"zona '{zone}' no encontrada (usa cloudflare.zones)"
-        current = next((r for r in await client.dns_records(z["id"])
-                        if r.get("id") == record_id), None)
+        current = next(
+            (r for r in await client.dns_records(z["id"]) if r.get("id") == record_id), None
+        )
         if not current:
             return f"registro {record_id} no encontrado en {z['name']}"
         changes: dict = {}
@@ -221,8 +252,10 @@ async def dns_update(zone: str, record_id: str, content: str = "", proxied: str 
         if not changes:
             return "nada que cambiar"
         if _dry_run():
-            return (f"[dry-run] no se ejecuta. {current.get('type')} {current.get('name')}: "
-                    f"{json.dumps(changes)}")
+            return (
+                f"[dry-run] no se ejecuta. {current.get('type')} {current.get('name')}: "
+                f"{json.dumps(changes)}"
+            )
         updated = await client.dns_update(z["id"], record_id, changes)
         return "Registro actualizado: " + json.dumps(_brief(updated), ensure_ascii=False)
     except CloudflareError as exc:
@@ -243,8 +276,9 @@ async def dns_delete(zone: str, record_id: str) -> str:
         z = await _zone(client, zone)
         if not z:
             return f"zona '{zone}' no encontrada (usa cloudflare.zones)"
-        current = next((r for r in await client.dns_records(z["id"])
-                        if r.get("id") == record_id), None)
+        current = next(
+            (r for r in await client.dns_records(z["id"]) if r.get("id") == record_id), None
+        )
         if not current:
             return f"registro {record_id} no encontrado en {z['name']}"
         desc = f"{current.get('type')} {current.get('name')} -> {current.get('content')}"
@@ -271,13 +305,21 @@ async def tunnels() -> str:
         for acc in sorted(accounts):
             for t in await client.tunnels(acc):
                 conns = t.get("connections") or []
-                out.append({"name": t.get("name"), "id": t.get("id"), "status": t.get("status"),
-                            "connectors": len({c.get("client_id") for c in conns}),
-                            "colos": sorted({c.get("colo_name") for c in conns} - {None})})
+                out.append(
+                    {
+                        "name": t.get("name"),
+                        "id": t.get("id"),
+                        "status": t.get("status"),
+                        "connectors": len({c.get("client_id") for c in conns}),
+                        "colos": sorted({c.get("colo_name") for c in conns} - {None}),
+                    }
+                )
         if not out:
             # Sin permiso de cuenta Cloudflare responde 200 con lista vacía, no 403.
-            return ("No se ve ningún túnel. Si hay CNAME a *.cfargotunnel.com, al token le falta "
-                    f"el permiso {PERM_HINT['tunnels']}.")
+            return (
+                "No se ve ningún túnel. Si hay CNAME a *.cfargotunnel.com, al token le falta "
+                f"el permiso {PERM_HINT['tunnels']}."
+            )
         return json.dumps(out, ensure_ascii=False, indent=2)[:12000]
     except CloudflareError as exc:
         return _err(exc, "tunnels")
@@ -299,9 +341,14 @@ async def analytics(zone: str, days: int = 1) -> str:
             return f"zona '{zone}' no encontrada (usa cloudflare.zones)"
         since = (dt.datetime.now(dt.UTC).date() - dt.timedelta(days=days - 1)).isoformat()
         data = await client.zone_analytics(z["id"], since)
-        rows = [{"date": (g.get("dimensions") or {}).get("date"), **(g.get("sum") or {}),
-                 "uniques": (g.get("uniq") or {}).get("uniques")}
-                for g in data.get("httpRequests1dGroups") or []]
+        rows = [
+            {
+                "date": (g.get("dimensions") or {}).get("date"),
+                **(g.get("sum") or {}),
+                "uniques": (g.get("uniq") or {}).get("uniques"),
+            }
+            for g in data.get("httpRequests1dGroups") or []
+        ]
         return json.dumps({"zone": z["name"], "days": rows}, ensure_ascii=False, indent=2)
     except CloudflareError as exc:
         return _err(exc, "analytics")

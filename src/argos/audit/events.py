@@ -96,7 +96,7 @@ class Turn(Event):
     latency_ms: int = 0
     context_chars: int = 0
     decision: dict[str, Any] = Field(default_factory=dict)
-    route: str | None = None                          # RF-CTX-05
+    route: str | None = None  # RF-CTX-05
     purpose: Literal["decide", "internal"] = "decide"
 
 
@@ -223,8 +223,20 @@ class EvalRun(Event):
 EVENT_TYPES: dict[str, type[Event]] = {
     cls.model_fields["type"].default: cls
     for cls in (
-        SessionStarted, SessionEnded, Turn, ToolCall, ShellExec, FileEvent, PackageInstall,
-        PlanEvent, SkillActivation, MemoryEvent, Approval, ErrorEvent, BudgetEvent, Feedback,
+        SessionStarted,
+        SessionEnded,
+        Turn,
+        ToolCall,
+        ShellExec,
+        FileEvent,
+        PackageInstall,
+        PlanEvent,
+        SkillActivation,
+        MemoryEvent,
+        Approval,
+        ErrorEvent,
+        BudgetEvent,
+        Feedback,
         EvalRun,
     )
 }

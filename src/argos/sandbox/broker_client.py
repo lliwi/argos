@@ -11,8 +11,13 @@ from argos.sandbox.docker_sandbox import EgressDecision, ExecResult, SandboxErro
 
 
 class BrokerSandbox:
-    def __init__(self, socket_path: Path, session_id: str, allow_extra: list[str] | None = None,
-                 env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        socket_path: Path,
+        session_id: str,
+        allow_extra: list[str] | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None:
         self.socket_path = socket_path
         self.session_id = session_id
         self.allow_extra = list(allow_extra or [])
@@ -24,8 +29,9 @@ class BrokerSandbox:
     async def _call(self, op: str, wait_s: float = 60, **params: Any) -> dict[str, Any]:
         if not self.socket_path.exists():
             raise SandboxError(f"broker no disponible ({self.socket_path})")
-        reader, writer = await asyncio.open_unix_connection(str(self.socket_path),
-                                                            limit=4 * 1024 * 1024)
+        reader, writer = await asyncio.open_unix_connection(
+            str(self.socket_path), limit=4 * 1024 * 1024
+        )
         try:
             req = {"op": op, "session_id": self.session_id, **params}
             writer.write((json.dumps(req) + "\n").encode())
@@ -40,15 +46,17 @@ class BrokerSandbox:
 
     async def _ensure(self) -> None:
         if not self._created:
-            resp = await self._call("create", wait_s=120, allow_extra=self.allow_extra,
-                                    env=self.env)
+            resp = await self._call(
+                "create", wait_s=120, allow_extra=self.allow_extra, env=self.env
+            )
             self.id = resp["id"]
             self._created = True
 
     async def exec(self, command: str, timeout_s: int | None = None) -> ExecResult:
         await self._ensure()
-        resp = await self._call("exec", wait_s=(timeout_s or 600) + 30, command=command,
-                                timeout_s=timeout_s)
+        resp = await self._call(
+            "exec", wait_s=(timeout_s or 600) + 30, command=command, timeout_s=timeout_s
+        )
         self._blocked = [EgressDecision(**b) for b in resp.get("egress_blocked", [])]
         return ExecResult(**resp["result"])
 

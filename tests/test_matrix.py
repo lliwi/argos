@@ -20,8 +20,8 @@ BOT, OWNER, STRANGER, ROOM = "@argos:test", "@lliwi:test", "@intruso:test", "!sa
 
 class FakeHomeserver:
     def __init__(self) -> None:
-        self.pending: list[tuple[str, dict]] = []     # (room, evento) para el próximo sync
-        self.invites: dict[str, str] = {}             # room -> invitador
+        self.pending: list[tuple[str, dict]] = []  # (room, evento) para el próximo sync
+        self.invites: dict[str, str] = {}  # room -> invitador
         self.sent: list[dict] = []
         self.joined: list[str] = []
         self.created: list[dict] = []
@@ -36,16 +36,33 @@ class FakeHomeserver:
         content: dict = {"msgtype": "m.text", "body": body}
         if thread:
             content["m.relates_to"] = {"rel_type": "m.thread", "event_id": thread}
-        ev = {"type": "m.room.message", "event_id": self.eid(), "sender": sender,
-              "content": content}
+        ev = {
+            "type": "m.room.message",
+            "event_id": self.eid(),
+            "sender": sender,
+            "content": content,
+        }
         self.pending.append((ROOM, ev))
         return ev["event_id"]
 
     def react(self, event_id: str, key: str, sender: str = OWNER) -> None:
-        self.pending.append((ROOM, {"type": "m.reaction", "event_id": self.eid(), "sender": sender,
-                                    "content": {"m.relates_to": {"rel_type": "m.annotation",
-                                                                 "event_id": event_id,
-                                                                 "key": key}}}))
+        self.pending.append(
+            (
+                ROOM,
+                {
+                    "type": "m.reaction",
+                    "event_id": self.eid(),
+                    "sender": sender,
+                    "content": {
+                        "m.relates_to": {
+                            "rel_type": "m.annotation",
+                            "event_id": event_id,
+                            "key": key,
+                        }
+                    },
+                },
+            )
+        )
 
     def app(self) -> Starlette:
         async def whoami(_):
@@ -57,8 +74,11 @@ class FakeHomeserver:
                 rooms["join"].setdefault(room, {"timeline": {"events": []}})
                 rooms["join"][room]["timeline"]["events"].append(ev)
             for room, inviter in self.invites.items():
-                rooms["invite"][room] = {"invite_state": {"events": [
-                    {"type": "m.room.member", "state_key": BOT, "sender": inviter}]}}
+                rooms["invite"][room] = {
+                    "invite_state": {
+                        "events": [{"type": "m.room.member", "state_key": BOT, "sender": inviter}]
+                    }
+                }
             self.pending, self.invites = [], {}
             return JSONResponse({"next_batch": f"b{next(self._batch)}", "rooms": rooms})
 
@@ -68,9 +88,14 @@ class FakeHomeserver:
 
         async def send(request: Request):
             eid = self.eid()
-            self.sent.append({"room": request.path_params["room"], "event_id": eid,
-                              "type": request.path_params["etype"],
-                              "content": await request.json()})
+            self.sent.append(
+                {
+                    "room": request.path_params["room"],
+                    "event_id": eid,
+                    "type": request.path_params["etype"],
+                    "content": await request.json(),
+                }
+            )
             return JSONResponse({"event_id": eid})
 
         async def create_room(request: Request):
@@ -86,26 +111,36 @@ class FakeHomeserver:
             return JSONResponse(self.direct)
 
         base = "/_matrix/client/v3"
-        return Starlette(routes=[
-            Route(base + "/createRoom", create_room, methods=["POST"]),
-            Route(base + "/user/{user}/account_data/m.direct", direct, methods=["GET", "PUT"]),
-            Route(base + "/account/whoami", whoami),
-            Route(base + "/sync", sync),
-            Route(base + "/rooms/{room}/join", join, methods=["POST"]),
-            Route(base + "/rooms/{room}/send/{etype}/{txn}", send, methods=["PUT"]),
-        ])
+        return Starlette(
+            routes=[
+                Route(base + "/createRoom", create_room, methods=["POST"]),
+                Route(base + "/user/{user}/account_data/m.direct", direct, methods=["GET", "PUT"]),
+                Route(base + "/account/whoami", whoami),
+                Route(base + "/sync", sync),
+                Route(base + "/rooms/{room}/join", join, methods=["POST"]),
+                Route(base + "/rooms/{room}/send/{etype}/{txn}", send, methods=["PUT"]),
+            ]
+        )
 
     def texts(self) -> list[str]:
-        return [s["content"].get("m.new_content", s["content"]).get("body", "")
-                for s in self.sent if s["type"] == "m.room.message"]
+        return [
+            s["content"].get("m.new_content", s["content"]).get("body", "")
+            for s in self.sent
+            if s["type"] == "m.room.message"
+        ]
 
 
-async def make_bridge(hs: FakeHomeserver, core_client, tmp_path,
-                      open_dm: bool = False) -> MatrixBridge:
+async def make_bridge(
+    hs: FakeHomeserver, core_client, tmp_path, open_dm: bool = False
+) -> MatrixBridge:
     matrix = MatrixClient("http://hs", "token", transport=httpx.ASGITransport(app=hs.app()))
-    bridge = MatrixBridge(matrix, core_client, BridgeConfig(
-        allowed_users=[OWNER], progress_interval_s=0, open_dm=open_dm), tmp_path / "matrix.db")
-    await bridge.run(once=True)          # primer arranque: fija el punto de partida
+    bridge = MatrixBridge(
+        matrix,
+        core_client,
+        BridgeConfig(allowed_users=[OWNER], progress_interval_s=0, open_dm=open_dm),
+        tmp_path / "matrix.db",
+    )
+    await bridge.run(once=True)  # primer arranque: fija el punto de partida
     return bridge
 
 
@@ -120,7 +155,7 @@ async def pump(bridge: MatrixBridge, until=lambda: False, rounds: int = 60) -> N
 
 async def test_backlog_ignored_invites_and_strangers(cfg, store, fake_sandbox, tmp_path):
     hs = FakeHomeserver()
-    hs.say("mensaje viejo")                              # llega en el primer sync: se ignora
+    hs.say("mensaje viejo")  # llega en el primer sync: se ignora
     async with running_core(cfg, store, [], fake_sandbox) as (core, client):
         hs.invites = {"!buena:test": OWNER, "!mala:test": STRANGER}
         bridge = await make_bridge(hs, client, tmp_path)
@@ -128,7 +163,7 @@ async def test_backlog_ignored_invites_and_strangers(cfg, store, fake_sandbox, t
         hs.say("haz algo", sender=STRANGER)
         await pump(bridge, rounds=3)
     assert hs.joined == ["!buena:test"]
-    assert store.sessions() == []                         # ni el viejo ni el intruso
+    assert store.sessions() == []  # ni el viejo ni el intruso
 
 
 async def test_task_in_thread_with_continuity(cfg, store, fake_sandbox, tmp_path):
@@ -143,15 +178,17 @@ async def test_task_in_thread_with_continuity(cfg, store, fake_sandbox, tmp_path
         threads = core.state.threads()
     assert "Anotado: tu perro es Tofu" in hs.texts() and "Se llama Tofu" in hs.texts()
     replies = [s for s in hs.sent if s["content"].get("body") == "Se llama Tofu"]
-    assert replies[0]["content"]["m.relates_to"]["event_id"] == root     # en el hilo
+    assert replies[0]["content"]["m.relates_to"]["event_id"] == root  # en el hilo
     assert len(threads) == 1 and len(core.state.exchanges(threads[0].id)) == 2
-    assert any("✅ completed" in t for t in hs.texts())                  # progreso editado
+    assert any("✅ completed" in t for t in hs.texts())  # progreso editado
 
 
 async def test_approval_by_reply_and_by_reaction(cfg, store, fake_sandbox, tmp_path):
     hs = FakeHomeserver()
-    scripts = [[call("shell.exec", command="rm -rf /home/agent/a"), final("limpio a")],
-               [call("shell.exec", command="rm -rf /home/agent/b"), final("no hecho")]]
+    scripts = [
+        [call("shell.exec", command="rm -rf /home/agent/a"), final("limpio a")],
+        [call("shell.exec", command="rm -rf /home/agent/b"), final("no hecho")],
+    ]
     async with running_core(cfg, store, scripts, fake_sandbox) as (core, client):
         bridge = await make_bridge(hs, client, tmp_path)
         root = hs.say("limpia a")
@@ -198,7 +235,7 @@ async def test_opens_unencrypted_dm_once(cfg, store, fake_sandbox, tmp_path):
     hs = FakeHomeserver()
     async with running_core(cfg, store, [], fake_sandbox) as (core, client):
         bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
-        await bridge.run(once=True)                       # reinicio: no crea otro
+        await bridge.run(once=True)  # reinicio: no crea otro
     assert len(hs.created) == 1
     room = hs.created[0]
     assert room["is_direct"] is True and room["invite"] == [OWNER]
@@ -213,8 +250,17 @@ async def test_warns_once_in_encrypted_rooms(cfg, store, fake_sandbox, tmp_path)
     async with running_core(cfg, store, [], fake_sandbox) as (core, client):
         bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
         for sender in (OWNER, OWNER, STRANGER):
-            hs.pending.append((ROOM, {"type": "m.room.encrypted", "event_id": hs.eid(),
-                                      "sender": sender, "content": {"algorithm": "m.megolm"}}))
+            hs.pending.append(
+                (
+                    ROOM,
+                    {
+                        "type": "m.room.encrypted",
+                        "event_id": hs.eid(),
+                        "sender": sender,
+                        "content": {"algorithm": "m.megolm"},
+                    },
+                )
+            )
         await pump(bridge, rounds=2)
     warnings = [t for t in hs.texts() if t.startswith("🔒")]
     assert len(warnings) == 1 and "chat «Argos»" in warnings[0]
@@ -237,8 +283,7 @@ async def test_login_uses_localpart_and_reports_errors():
     app = Starlette(routes=[Route("/_matrix/client/v3/login", handler, methods=["POST"])])
     t = httpx.ASGITransport(app=app)
     data = await login("http://hs", "@argos:test", "ok", transport=t)
-    assert data["device_id"] == "D" and seen["identifier"] == {"type": "m.id.user",
-                                                               "user": "argos"}
+    assert data["device_id"] == "D" and seen["identifier"] == {"type": "m.id.user", "user": "argos"}
     with pytest.raises(MatrixError, match="M_FORBIDDEN"):
         await login("http://hs", "argos", "mal", transport=t)
 
@@ -247,14 +292,17 @@ async def test_scheduled_result_reaches_the_dm(cfg, store, fake_sandbox, tmp_pat
     from argos.scheduler import ScheduleCfg, SchedulerCfg
 
     hs = FakeHomeserver()
-    sched = SchedulerCfg(schedules=[
-        ScheduleCfg(name="trayecto", title="Trayecto trabajo", cron="0 18 * * 0-4", task="t"),
-        ScheduleCfg(name="silenciosa", cron="0 9 * * *", task="t", notify=False)])
+    sched = SchedulerCfg(
+        schedules=[
+            ScheduleCfg(name="trayecto", title="Trayecto trabajo", cron="0 18 * * 0-4", task="t"),
+            ScheduleCfg(name="silenciosa", cron="0 9 * * *", task="t", notify=False),
+        ]
+    )
     scripts = [[final("🚲 Bici: mañana seco")], [final("no debería llegar")]]
     async with running_core(cfg, store, scripts, fake_sandbox, sched=sched) as (core, client):
-        assert sched.schedules[0].profile == "orchestrator"      # punto de entrada por defecto
+        assert sched.schedules[0].profile == "orchestrator"  # punto de entrada por defecto
         bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
-        await asyncio.sleep(0.2)                                 # observador global suscrito
+        await asyncio.sleep(0.2)  # observador global suscrito
         core.scheduler.fire(sched.schedules[0])
         core.scheduler.fire(sched.schedules[1])
         for _ in range(60):
@@ -263,8 +311,11 @@ async def test_scheduled_result_reaches_the_dm(cfg, store, fake_sandbox, tmp_pat
                 break
         await asyncio.sleep(0.3)
         bridge._watcher.cancel()
-    reports = [(s["room"], s["content"]["body"]) for s in hs.sent
-               if s["content"].get("body", "").startswith("⏰")]
+    reports = [
+        (s["room"], s["content"]["body"])
+        for s in hs.sent
+        if s["content"].get("body", "").startswith("⏰")
+    ]
     assert reports == [("!dm1:test", "⏰ Trayecto trabajo\n🚲 Bici: mañana seco")]
 
 
@@ -273,10 +324,17 @@ async def test_eval_report_reaches_the_dm(cfg, store, fake_sandbox, tmp_path):
     async with running_core(cfg, store, [], fake_sandbox) as (core, client):
         bridge = await make_bridge(hs, client, tmp_path, open_dm=True)
         await asyncio.sleep(0.2)
-        core.bus.publish({"type": "eval_report", "title": "Evaluación de Argos",
-                          "notify": True, "text": "✅ 9 tareas · éxito 100%"})
-        core.bus.publish({"type": "eval_report", "title": "silenciosa", "notify": False,
-                          "text": "no"})
+        core.bus.publish(
+            {
+                "type": "eval_report",
+                "title": "Evaluación de Argos",
+                "notify": True,
+                "text": "✅ 9 tareas · éxito 100%",
+            }
+        )
+        core.bus.publish(
+            {"type": "eval_report", "title": "silenciosa", "notify": False, "text": "no"}
+        )
         for _ in range(40):
             await asyncio.sleep(0.05)
             if any(t.startswith("📊") for t in hs.texts()):
@@ -284,4 +342,5 @@ async def test_eval_report_reaches_the_dm(cfg, store, fake_sandbox, tmp_path):
         await asyncio.sleep(0.2)
         bridge._watcher.cancel()
     assert [t for t in hs.texts() if t.startswith("📊")] == [
-        "📊 Evaluación de Argos\n✅ 9 tareas · éxito 100%"]
+        "📊 Evaluación de Argos\n✅ 9 tareas · éxito 100%"
+    ]

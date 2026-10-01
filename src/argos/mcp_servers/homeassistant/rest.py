@@ -17,11 +17,21 @@ class HomeAssistantError(RuntimeError):
 
 
 class HomeAssistantClient:
-    def __init__(self, base_url: str, token: str, timeout: float = 30, verify: bool = True,
-                 transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        timeout: float = 30,
+        verify: bool = True,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._http = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), timeout=timeout, verify=verify, transport=transport,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+            base_url=base_url.rstrip("/"),
+            timeout=timeout,
+            verify=verify,
+            transport=transport,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -54,5 +64,6 @@ class HomeAssistantClient:
         return await self._req("GET", f"/api/states/{quote(entity_id)}")
 
     async def call_service(self, domain: str, service: str, entity_id: str) -> Any:
-        return await self._req("POST", f"/api/services/{quote(domain)}/{quote(service)}",
-                               json={"entity_id": entity_id})
+        return await self._req(
+            "POST", f"/api/services/{quote(domain)}/{quote(service)}", json={"entity_id": entity_id}
+        )
