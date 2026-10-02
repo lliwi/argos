@@ -6,7 +6,7 @@ description: >
 # (Portainer, Home Assistant, shell…) las aporta el subagente del perfil destino, con sus
 # controles (aprobación humana donde aplique).
 # weather.* es solo lectura y sin credenciales: responde al momento sin delegar.
-tools: [agent.delegate, memory.*, scratchpad.*, context.*, infra.inventory, weather.*]
+tools: [agent.delegate, agent.handoff, memory.*, scratchpad.*, context.*, infra.inventory, weather.*]
 reads_untrusted: false
 secrets: []
 egress_extra: []

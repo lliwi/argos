@@ -88,10 +88,13 @@ Invita al bot a una sala **sin cifrar** y escríbele. Aprobaciones con «sí»/�
 ([ADR-0012](docs/adr/0012-canal-matrix.md)).
 
 **OSINT y pentest** tienen su propio daemon, aislado del orquestador
-([ADR-0026](docs/adr/0026-daemon-por-segmento.md)): en Matrix, `!osint <tarea>` o
-`!pentest <tarea>` abren un hilo atendido por ese segmento; en el chat, `/perfil osint`.
-`scripts/up.sh` arranca `daemon-osint`; pentest va bajo demanda:
-`docker compose --profile pentest --profile kali up -d daemon-pentest kali egress-pentest`.
+([ADR-0026](docs/adr/0026-daemon-por-segmento.md)). Basta pedírselo al orquestador en lenguaje
+natural («audita X», «investiga Y»): lo reenvía al segmento correcto con `agent.handoff` y el
+resultado te llega sin pasar por su contexto ([ADR-0027](docs/adr/0027-handoff-y-autorizacion-por-peticion.md)).
+También puedes ir directo: `!osint <tarea>`/`!pentest <tarea>` en Matrix, `/perfil osint` en el chat.
+El objetivo que nombras en la petición autoriza el alcance del pentest (RF-LEG-01), auditado; cada
+acción ofensiva sigue pidiendo aprobación. `scripts/up.sh` arranca `daemon-osint`; pentest va bajo
+demanda: `docker compose --profile pentest --profile kali up -d daemon-pentest kali egress-pentest`.
 
 ## Pentest de servicios propios (UC-2)
 Auditoría de tus propios servicios web con Kali, con alcance y autorización obligatorios

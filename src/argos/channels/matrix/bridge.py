@@ -70,6 +70,7 @@ class _Run:
     lines: list[str] = field(default_factory=list)
     last_edit: float = 0.0
     segment: str = MAIN
+    handoff: dict[str, Any] | None = None  # agent.handoff → reenviar a otro segmento (ADR-0026)
 
 
 class MatrixBridge:
@@ -330,6 +331,9 @@ class MatrixBridge:
                 if kind == "approval_request":
                     await self._post_approval(ev, run.room_id, run.thread_root, run.segment)
                     continue
+                if kind == "handoff":
+                    run.handoff = ev
+                    continue
                 if line := progress_line(ev, run.session_id):
                     run.lines.append(line)
                     await self._maybe_edit(run)
@@ -345,6 +349,19 @@ class MatrixBridge:
         answer = (final or {}).get("result") or (final or {}).get("message") or ""
         if answer:
             await self.matrix.send_text(run.room_id, answer, thread_root=run.thread_root)
+        if run.handoff:
+            # El orquestador pasó la tarea a un perfil aislado (ADR-0026). Reenvío al daemon de ese
+            # segmento; el hilo pasa a ser de ese perfil y su resultado va al usuario, no al
+            # orquestador. Rebind: borro la vinculación del hilo para que _submit cree la nueva.
+            h = run.handoff
+            self.db.execute(
+                "DELETE FROM threads WHERE room_id=? AND root_event=?",
+                (run.room_id, run.thread_root),
+            )
+            self.db.commit()
+            await self._submit(
+                run.room_id, run.thread_root, h["task"], h["target_segment"], h["target_profile"]
+            )
 
     async def _maybe_edit(self, run: _Run, force: bool = False) -> None:
         now = time.monotonic()

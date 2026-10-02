@@ -193,6 +193,16 @@ class ErrorEvent(Event):
     retry_of: str | None = None
 
 
+class HandoffRequested(Event):
+    """El orquestador pasa una tarea a un perfil de otro segmento (ADR-0026). El canal la reenvía
+    al daemon de ese segmento; el resultado va al usuario, nunca al contexto del orquestador."""
+
+    type: Literal["handoff"] = "handoff"
+    target_profile: str
+    target_segment: str
+    task: str
+
+
 class BudgetEvent(Event):
     type: Literal["budget_event"] = "budget_event"
     scope: Literal["session", "day", "profile"]
@@ -235,6 +245,7 @@ EVENT_TYPES: dict[str, type[Event]] = {
         MemoryEvent,
         Approval,
         ErrorEvent,
+        HandoffRequested,
         BudgetEvent,
         Feedback,
         EvalRun,

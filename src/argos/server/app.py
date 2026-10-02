@@ -191,6 +191,8 @@ def _opts_from(body: dict[str, Any], channel: str) -> SessionOptions:
         allow_domains=list(body.get("allow_domains") or []),
         session_budget_tokens=body.get("budget_tokens"),
         thread_id=body.get("thread_id"),
+        scope=list(body.get("scope") or []),
+        authorization_ref=body.get("authorization_ref"),
     )
 
 

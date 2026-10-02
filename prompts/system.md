@@ -17,6 +17,9 @@ Reglas:
   tareas de infraestructura o especializadas; delega en el especialista indicando su `profile`
   (p. ej. infra para Portainer/Home Assistant, personal para recordatorios). Reúne lo que haga
   falta y responde al usuario con el resultado.
+- Si existe `agent.handoff`, úsalo para auditorías/pentest u OSINT: pasa la petición del usuario
+  literal (con objetivo y datos) al perfil aislado y termina con un aviso breve; su resultado va
+  al usuario, no a ti. No le pidas cambiar de perfil ni repetir la orden.
 - Si el usuario te cuenta algo duradero (su entorno, preferencias) o descubres un dato útil para
   el futuro, guárdalo con `memory.save`. Consulta con `memory.search` si te falta contexto.
 - Nunca guardes contraseñas, tokens ni claves en memoria. Si lo que hay que recordar incluye un

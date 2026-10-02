@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS threads (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS thread_scope (   -- hosts autorizados por hilo (pentest, RF-LEG-01)
+    thread_id TEXT PRIMARY KEY,
+    hosts TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS exchanges (
     thread_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -168,6 +172,24 @@ class StateStore:
                 (limit,),
             )
         ]
+
+    def merge_thread_scope(self, tid: str, hosts: list[str]) -> list[str]:
+        """Añade `hosts` al alcance autorizado del hilo y devuelve el acumulado (RF-LEG-01).
+        Da continuidad al pentest: el objetivo nombrado en un mensaje sigue autorizado luego."""
+        row = self.db.execute("SELECT hosts FROM thread_scope WHERE thread_id=?", (tid,)).fetchone()
+        current = [h for h in (row[0].split(",") if row and row[0] else []) if h]
+        merged = list(current)
+        for h in hosts:
+            if h and h not in merged:
+                merged.append(h)
+        if merged != current:
+            self.db.execute(
+                "INSERT INTO thread_scope(thread_id, hosts) VALUES (?,?)"
+                " ON CONFLICT(thread_id) DO UPDATE SET hosts=excluded.hosts",
+                (tid, ",".join(merged)),
+            )
+            self.db.commit()
+        return merged
 
     def exchanges(self, tid: str) -> list[Exchange]:
         return [

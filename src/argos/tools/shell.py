@@ -133,7 +133,7 @@ class ShellExecTool(Tool):
         if targets is not None:
             # Mismo criterio de alcance/autorización que el MCP de Kali (RF-SEC-06, RF-LEG-01).
             try:
-                Scope.from_profile(ctx.profile).check(targets)
+                (ctx.scope or Scope.from_profile(ctx.profile)).check(targets)
             except ScopeError as exc:
                 raise ToolError(str(exc), ErrorKind.VALIDATION_ERROR) from exc
 

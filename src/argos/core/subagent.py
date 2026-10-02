@@ -55,15 +55,13 @@ class DelegateTool(Tool):
                 "herramientas, credenciales y controles (aprobación humana donde aplique). "
                 "Devuelve solo el resultado. Enruta cada tarea al especialista adecuado."
             )
-            # Perfiles de otros segmentos (ADR-0026): existen, pero NO se delegan en ellos (P2).
-            # Se informa para que el agente no diga que no existen y explique cómo usarlos.
+            # Perfiles de otros segmentos (ADR-0026): NO se delegan en ellos (P2); se les pasa la
+            # tarea con `agent.handoff`, que no devuelve su resultado (va al usuario).
             if isolated_profiles:
                 aislados = "; ".join(f"{n}: {d}" for n, d in isolated_profiles.items())
                 self.description += (
-                    f" Otros perfiles, AISLADOS en su propio núcleo (no puedes delegar en ellos "
-                    f"ni ver sus resultados) → {aislados}. Si el usuario los pide, dile que los "
-                    "use directamente: en Matrix `!<perfil> <tarea>` (p. ej. `!osint …`) y en el "
-                    "chat `/perfil <perfil>`."
+                    f" Para estos otros perfiles, AISLADOS en su propio núcleo, NO uses delegate: "
+                    f"usa `agent.handoff` → {aislados}."
                 )
         else:
             self.description = (
@@ -92,4 +90,69 @@ class DelegateTool(Tool):
             ok=status == "completed",
             error_kind=None if status == "completed" else ErrorKind.TOOL_ERROR,
             data={"subagent_session": sid, "subagent_tokens": tokens},
+        )
+
+
+class HandoffTool(Tool):
+    """Pasa la tarea a un perfil de OTRO segmento (osint, pentest), aislado del orquestador.
+
+    No ejecuta ni devuelve el resultado: emite un evento `handoff` que el canal (chat/Matrix)
+    reenvía al daemon de ese segmento; el resultado llega al usuario, nunca al contexto del
+    orquestador (P2, ADR-0026). Para perfiles del mismo segmento, usa `agent.delegate`.
+    """
+
+    name = "agent.handoff"
+    risk_class = RiskClass.READ
+    idempotent = False
+    parameters = {
+        "type": "object",
+        "required": ["profile", "task"],
+        "properties": {
+            "profile": {
+                "type": "string",
+                "description": "Perfil aislado destino (ver descripción)",
+            },
+            "task": {
+                "type": "string",
+                "description": "La tarea del usuario, literal: el destino la ejecuta por su cuenta",
+            },
+        },
+    }
+
+    def __init__(self, isolated_profiles: dict[str, str], segment_of: Callable[[str], str]) -> None:
+        self._targets = isolated_profiles
+        self._segment_of = segment_of
+        catalogo = "; ".join(f"{n}: {d}" for n, d in isolated_profiles.items())
+        self.description = (
+            "Pasa la tarea del usuario a un perfil AISLADO de otro segmento y termina: su "
+            f"resultado va directo al usuario, tú NO lo ves. Destinos → {catalogo}. Úsalo cuando "
+            "el usuario pida una auditoría/pentest (pentest) o investigación OSINT (osint); pásale "
+            "su petición tal cual (incluidos objetivo y cualquier dato que haya dado)."
+        )
+
+    async def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        from argos.audit.events import HandoffRequested
+
+        task = str(args.get("task", "")).strip()
+        target = str(args.get("profile") or "").strip()
+        if not task:
+            raise ToolError("task vacía", ErrorKind.VALIDATION_ERROR)
+        if target not in self._targets:
+            raise ToolError(
+                f"no puedes pasar la tarea a {target!r}. Perfiles aislados: "
+                f"{sorted(self._targets) or '(ninguno)'}",
+                ErrorKind.VALIDATION_ERROR,
+            )
+        ctx.emit(
+            HandoffRequested(
+                session_id=ctx.session_id,
+                target_profile=target,
+                target_segment=self._segment_of(target),
+                task=task,
+            )
+        )
+        return ToolResult(
+            f"Tarea pasada al perfil {target} (núcleo aislado). El resultado le llegará "
+            "directamente al usuario; no esperes su salida. Termina ya con un aviso breve.",
+            data={"handoff_profile": target},
         )

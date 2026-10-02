@@ -19,17 +19,18 @@ from argos.attachments import Attachment
 from argos.audit.events import MemoryEvent, SessionEnded, SessionStarted
 from argos.audit.redact import Redactor
 from argos.audit.store import AuditStore
-from argos.config import Config, harness_commit, sha256_text
+from argos.config import Config, Profile, harness_commit, sha256_text
 from argos.core.context import ContextManager, LoadToolsTool, ReadRefTool
 from argos.core.conversation import compose_task, conversation_block
 from argos.core.loop import AgentLoop, LoopResult
-from argos.core.subagent import DelegateTool
+from argos.core.subagent import DelegateTool, HandoffTool
 from argos.governance.approval import Approver, NoApprover
 from argos.governance.budget import BudgetTracker, tokens_spent_today
 from argos.governance.killswitch import KillSwitch
 from argos.inventory import load_inventory
 from argos.model.base import ModelProvider
 from argos.model.factory import engine_instructions
+from argos.pentest import Scope, extract_targets
 from argos.sandbox.broker_client import BrokerSandbox
 from argos.sandbox.docker_sandbox import DockerSandbox, EgressPolicy, Sandbox
 from argos.secrets import load_profile_secrets
@@ -80,6 +81,11 @@ class SessionOptions:
     workspace: Path | None = None  # subagentes: comparten el workspace del padre
     depth: int = 0  # 0 = sesión raíz
     parent_profile: str | None = None  # subagentes: perfil de quien delega
+    # Alcance autorizado de pentest (RF-LEG-01): hosts que el usuario nombró en su petición. El
+    # canal los aporta; si no, se derivan del texto de la tarea. authorization_ref lo genera el
+    # canal/el núcleo, nunca el modelo.
+    scope: list[str] = field(default_factory=list)
+    authorization_ref: str | None = None
     session_id: str | None = None  # lo fija la API para poder devolverlo al instante
     thread_id: str | None = None  # conversación a la que pertenece (argos.state)
     trace_id: str | None = None
@@ -123,6 +129,30 @@ class LazySandbox:
     async def destroy(self) -> None:
         if self._inner is not None:
             await self._inner.destroy()
+
+
+def session_scope(opts: SessionOptions, profile: Profile, state: StateStore | None) -> Scope:
+    """Alcance efectivo de una sesión de pentest (RF-LEG-01). Los hosts vienen de la petición del
+    usuario (opts.scope del canal o, si no, extraídos del texto de la tarea), nunca de lo que
+    decida el modelo. Se acumulan por hilo para dar continuidad ("sigue con el mismo objetivo").
+    authorization_ref: lo que dé el canal/config o, si el usuario nombró objetivo, una referencia
+    generada y auditada (RF-LEG-06). Para perfiles sin pentest, el alcance del perfil sin más."""
+    if not profile.allows_tool("kali.nmap"):
+        return Scope.from_profile(profile)
+    hosts = list(profile.scope) + (opts.scope or extract_targets(opts.task))
+    if state is not None and opts.thread_id:
+        hosts = state.merge_thread_scope(opts.thread_id, hosts)
+    seen: list[str] = []
+    for h in hosts:
+        h = h.strip().lower().rstrip(".")
+        if h and h not in seen:
+            seen.append(h)
+    ref = opts.authorization_ref or profile.authorization_ref
+    if not ref and seen:
+        ref = (
+            f"autorizada por el usuario en la petición ({opts.channel}, {datetime.now(UTC).date()})"
+        )
+    return Scope(tuple(seen), ref)
 
 
 def isolated_profiles(cfg: Config) -> dict[str, str]:
@@ -171,11 +201,10 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
             for n in profile.delegate_profiles
             if n in cfg.profiles and cfg.allows_profile(n)
         }
-        reg.register(
-            DelegateTool(
-                _noop, cfg.subagents.budget_tokens, profile.name, targets, isolated_profiles(cfg)
-            )
-        )
+        iso = isolated_profiles(cfg)
+        reg.register(DelegateTool(_noop, cfg.subagents.budget_tokens, profile.name, targets, iso))
+        if iso:
+            reg.register(HandoffTool(iso, lambda n: cfg.segment_of(n) or ""))
     mcp = McpConnections()
     try:
         if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
@@ -390,6 +419,7 @@ async def _run(
         state_dir = opts.state_dir or cfg.data_path
         state_dir.mkdir(parents=True, exist_ok=True)
         state = StateStore(state_dir / "state.db")
+        scope = session_scope(opts, profile, state)  # RF-LEG-01: alcance efectivo de pentest
         tools.register(MemorySave(state, ttl_days=profile.retention_days))
         tools.register(MemorySearch(state))
         tools.register(MemoryUpdate(state))
@@ -400,14 +430,14 @@ async def _run(
             for tool in await mcp.connect(weather_server()):
                 tools.register(tool)
         if profile.allows_tool("kali.nmap"):
-            # Auditoría de servicios propios (UC-2). Alcance y autorización del perfil (RF-SEC-06,
-            # RF-LEG-01); el token de Kali, si lo hay, es un secreto scoped (nunca al modelo).
+            # Auditoría de servicios propios (UC-2). Alcance y autorización de la petición del
+            # usuario (RF-SEC-06, RF-LEG-01); el token de Kali, si lo hay, es un secreto scoped.
             for tool in await mcp.connect(
                 kali_server(
                     cfg.kali.url,
                     secrets.get(cfg.kali.token_env),
-                    profile.scope,
-                    profile.authorization_ref,
+                    list(scope.allow),
+                    scope.authorization_ref,
                     dry_run,
                 )
             ):
@@ -538,15 +568,13 @@ async def _run(
                 for n in profile.delegate_profiles
                 if n in cfg.profiles and cfg.allows_profile(n)
             }
+            iso = isolated_profiles(cfg)
             tools.register(
-                DelegateTool(
-                    spawn,
-                    cfg.subagents.budget_tokens,
-                    profile.name,
-                    targets,
-                    isolated_profiles(cfg),
-                )
+                DelegateTool(spawn, cfg.subagents.budget_tokens, profile.name, targets, iso)
             )
+            if iso:
+                # El orquestador pasa la tarea a osint/pentest sin ver su resultado (ADR-0026).
+                tools.register(HandoffTool(iso, lambda n: cfg.segment_of(n) or ""))
 
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
         context_ref: list[ContextManager] = []
@@ -614,7 +642,7 @@ async def _run(
                 config_hash=cfg.config_hash(),
                 harness_commit=harness_commit(cfg.root),
                 budget={"session_tokens": session_limit, "day_tokens": cfg.budget.day_tokens},
-                authorization_ref=profile.authorization_ref,
+                authorization_ref=scope.authorization_ref,
                 dry_run=dry_run,
             )
         )
@@ -633,6 +661,7 @@ async def _run(
             workspace=workspace,
             sandbox=sandbox,
             dry_run=dry_run,
+            scope=scope,
             on_progress=on_progress,
         )
 

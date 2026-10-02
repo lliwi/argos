@@ -33,6 +33,7 @@ class ToolContext:
     store: AuditStore
     dry_run: bool = False
     sandbox: Sandbox | None = None
+    scope: Any = None  # argos.pentest.Scope efectivo (RF-LEG-01); None => el del perfil
     # Emite eventos hijos de la tool call en curso (parent_span_id ya fijado).
     emit: Callable[[Event], None] = field(default=lambda e: None)
 

@@ -81,6 +81,7 @@ class AgentLoop:
         workspace,
         sandbox: Sandbox | None,
         dry_run: bool,
+        scope=None,
         on_progress=None,
     ) -> None:
         self.sid = session_id
@@ -96,6 +97,7 @@ class AgentLoop:
         self.workspace = workspace
         self.sandbox = sandbox
         self.dry_run = dry_run
+        self.scope = scope  # alcance efectivo de pentest (RF-LEG-01); None => el del perfil
         self.on_progress = on_progress or (lambda kind, text: None)
         self._signatures: Counter[str] = Counter()
         self._tokens = 0
@@ -409,6 +411,7 @@ class AgentLoop:
             store=self.store,
             dry_run=self.dry_run,
             sandbox=self.sandbox,
+            scope=self.scope,
             emit=lambda e: self._emit_child(e, span_id),
         )
 

@@ -179,6 +179,60 @@ async def test_osint_command_inside_main_thread_is_refused(root, fake_sandbox, t
     assert c["osint"].store.sessions() == []
 
 
+def _bridge(main_cfg, main_client, hs, tmp_path):
+    matrix = MatrixClient("http://hs", "token", transport=httpx.ASGITransport(app=hs.app()))
+    bridge = MatrixBridge(
+        matrix,
+        main_client,
+        BridgeConfig(
+            allowed_users=[OWNER],
+            progress_interval_s=0,
+            open_dm=False,
+            profile="orchestrator",
+            segment_profiles=SEGMENT_PROFILES,
+        ),
+        tmp_path / "matrix.db",
+        segment_client=lambda seg: CoreClient.connect(
+            main_cfg.api_socket, main_cfg.root, segment=seg
+        ),
+    )
+    return matrix, bridge
+
+
+async def test_orchestrator_hands_off_to_osint_without_seeing_result(root, fake_sandbox, tmp_path):
+    """El usuario pide al orquestador (sin !) una investigación; este la pasa con agent.handoff al
+    daemon de osint, que la ejecuta. El orquestador no ve el resultado (P2, ADR-0026)."""
+    hs = FakeHomeserver()
+    main_scripts = [[call("agent.handoff", profile="osint", task="investiga ejemplo.com"),
+                     final("Se lo paso a osint.")]]  # fmt: skip
+    osint_scripts = [[call("osint.recon", workflow="domain_recon", target="ejemplo.com"),
+                      final("ejemplo.com: 2 hallazgos")]]  # fmt: skip
+    async with running_cores(root, fake_sandbox, osint_scripts=osint_scripts,
+                             main_scripts=main_scripts) as c:  # fmt: skip
+        main_cfg = c["main"].cfg
+        async with CoreClient(main_cfg.api_socket) as main_client:
+            matrix, bridge = _bridge(main_cfg, main_client, hs, tmp_path)
+            await bridge.run(once=True)
+            hs.say("investiga el dominio ejemplo.com")
+            await pump(bridge, until=lambda: "ejemplo.com: 2 hallazgos" in hs.texts())
+            await bridge.aclose()
+        await matrix.aclose()
+        main_sessions = c["main"].store.sessions()
+        osint_sessions = c["osint"].store.sessions()
+    # El orquestador corrió y pasó la tarea; el trabajo real está en osint.
+    assert [s["profile"] for s in main_sessions] == ["orchestrator"]
+    assert [s["profile"] for s in osint_sessions] == ["osint"]
+    recon = [e for s in osint_sessions for e in c["osint"].store.events(s["id"], ["tool_call"])]
+    assert any(e.tool == "osint.recon" for e in recon)
+    # El resultado de osint no entró en la sesión del orquestador.
+    assert not any(
+        e.tool and e.tool.startswith("osint.")
+        for s in main_sessions
+        for e in c["main"].store.events(s["id"], ["tool_call"])
+    )
+    assert "ejemplo.com: 2 hallazgos" in hs.texts()
+
+
 def test_orchestrator_knows_isolated_profiles_but_cannot_delegate(root):
     from argos.core.session import isolated_profiles
     from argos.core.subagent import DelegateTool
@@ -187,6 +241,81 @@ def test_orchestrator_knows_isolated_profiles_but_cannot_delegate(root):
     iso = isolated_profiles(cfg)
     assert set(iso) == {"osint", "pentest"}
     tool = DelegateTool(None, 1000, "orchestrator", {"infra": "infra"}, iso)
-    assert "AISLADOS" in tool.description and "osint" in tool.description
-    assert "!osint" in tool.description and "/perfil" in tool.description
+    assert "AISLADOS" in tool.description and "agent.handoff" in tool.description
     assert "osint" not in tool._targets  # informativo: sigue sin poder delegar ahí
+
+
+async def test_handoff_tool_emits_event_without_running(root):
+    from argos.audit.events import HandoffRequested
+    from argos.core.session import isolated_profiles
+    from argos.core.subagent import HandoffTool
+    from argos.tools.base import ToolContext
+
+    cfg = _cfg(root, "main")
+    emitted = []
+    tool = HandoffTool(isolated_profiles(cfg), lambda n: cfg.segment_of(n) or "")
+    ctx = ToolContext(
+        session_id="s1",
+        turn_id="t",
+        trace_id="s1",
+        profile=cfg.profile("orchestrator"),
+        workspace=root,
+        store=None,
+        emit=emitted.append,
+    )
+    res = await tool.run({"profile": "pentest", "task": "audita cm.playingwith.info"}, ctx)
+    assert res.ok and res.data["handoff_profile"] == "pentest"
+    assert len(emitted) == 1 and isinstance(emitted[0], HandoffRequested)
+    assert emitted[0].target_segment == "pentest" and "cm.playingwith.info" in emitted[0].task
+    # No se puede pasar a un perfil del propio segmento ni a uno inexistente.
+    from argos.tools.base import ToolError
+
+    for bad in ("infra", "noexiste"):
+        try:
+            await tool.run({"profile": bad, "task": "x"}, ctx)
+            raise AssertionError(f"{bad} debería rechazarse")
+        except ToolError:
+            pass
+
+
+def test_request_authorizes_pentest_scope(root):
+    """RF-LEG-01: el alcance sale del objetivo que el usuario nombra en su petición, con una
+    referencia auto-generada; se acumula por hilo. Sin objetivo, falla cerrado."""
+    from argos.core.session import SessionOptions, session_scope
+    from argos.pentest import ScopeError
+    from argos.state import StateStore
+
+    cfg = _cfg(root, "pentest")
+    pentest = cfg.profile("pentest")
+    state = StateStore(root / "st.db")
+    state.db.execute(
+        "INSERT INTO threads(id,title,channel,profile,created_at,updated_at)"
+        " VALUES ('th','t','matrix','pentest','now','now')"
+    )
+    state.db.commit()
+
+    sc = session_scope(
+        SessionOptions(task="audita https://cm.playingwith.info", profile="pentest",
+                       channel="matrix", thread_id="th"),
+        pentest, state,
+    )  # fmt: skip
+    assert sc.authorized and sc.allows("cm.playingwith.info")
+    assert "usuario" in (sc.authorization_ref or "")
+    sc.check(["cm.playingwith.info"])
+    try:
+        sc.check(["otro.ajeno.com"])
+        raise AssertionError("un host no nombrado debe quedar fuera de alcance")
+    except ScopeError:
+        pass
+    # Continuidad: un segundo mensaje añade otro objetivo sin perder el primero.
+    sc2 = session_scope(
+        SessionOptions(task="ahora isms.playingwith.info", profile="pentest",
+                       channel="matrix", thread_id="th"),
+        pentest, state,
+    )  # fmt: skip
+    assert sc2.allows("cm.playingwith.info") and sc2.allows("isms.playingwith.info")
+    # Sin objetivo nombrado y sin historial: sin autorización (falla cerrado).
+    empty = session_scope(
+        SessionOptions(task="hola", profile="pentest", channel="chat"), pentest, None
+    )
+    assert not empty.authorized
