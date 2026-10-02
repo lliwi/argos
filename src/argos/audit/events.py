@@ -203,6 +203,17 @@ class HandoffRequested(Event):
     task: str
 
 
+class PublishRequested(Event):
+    """Un perfil aislado (pentest/osint) pide publicar su informe en Notion (ADR-0027). El canal lo
+    crea LITERAL vía la API de Notion del daemon principal, sin que ningún modelo lea el texto
+    (contenido no confiable): así no hay superficie de inyección hacia un perfil con escritura."""
+
+    type: Literal["publish_request"] = "publish_request"
+    title: str
+    markdown: str
+    parent: str
+
+
 class BudgetEvent(Event):
     type: Literal["budget_event"] = "budget_event"
     scope: Literal["session", "day", "profile"]
@@ -246,6 +257,7 @@ EVENT_TYPES: dict[str, type[Event]] = {
         Approval,
         ErrorEvent,
         HandoffRequested,
+        PublishRequested,
         BudgetEvent,
         Feedback,
         EvalRun,

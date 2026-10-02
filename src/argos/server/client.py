@@ -122,6 +122,12 @@ class CoreClient:
     async def rearm(self) -> None:
         await self._call("POST", "/rearm")
 
+    async def publish(self, title: str, markdown: str, parent: str) -> dict[str, Any]:
+        """Crea una subpágina de Notion literal (ADR-0027); devuelve {id, url}."""
+        return await self._call(
+            "POST", "/publish", json={"title": title, "markdown": markdown, "parent": parent}
+        )
+
     async def sessions(self) -> list[dict[str, Any]]:
         return await self._call("GET", "/sessions")
 

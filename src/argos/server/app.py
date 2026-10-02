@@ -426,9 +426,45 @@ def build_api(core: Core) -> Starlette:
             background=BackgroundTask(close),
         )
 
+    async def publish(request: Request) -> JSONResponse:
+        """Crea una subpágina de Notion LITERAL (ADR-0027). Solo el daemon principal tiene el token
+        del inventario; el texto (de un perfil aislado, no confiable) se publica tal cual, sin que
+        ningún modelo lo lea: no hay inyección hacia un agente con escritura."""
+        from argos.inventory import load_inventory
+        from argos.mcp_servers.notion.convert import (
+            markdown_to_blocks,
+            normalize_id,
+            to_notion_props,
+        )
+        from argos.mcp_servers.notion.rest import NotionClient, NotionError
+
+        try:
+            body = await request.json()
+        except json.JSONDecodeError as exc:
+            return JSONResponse({"error": str(exc)}, 400)
+        title = str(body.get("title") or "").strip()
+        markdown = str(body.get("markdown") or "")
+        pid = normalize_id(str(body.get("parent") or ""))
+        if not title or not pid:
+            return JSONResponse({"error": "faltan title o parent (URL/id de Notion) válidos"}, 400)
+        inv = load_inventory(core.cfg.root, core.store.redactor)
+        token = inv.secret("notion", "api_key") or inv.secret("notion", "token")
+        if not token:
+            return JSONResponse({"error": "Notion no está configurado en el inventario"}, 503)
+        client = NotionClient(token)
+        try:
+            props = to_notion_props({"title": title}, {"title": {"type": "title"}})
+            page = await client.create_page({"page_id": pid}, props, markdown_to_blocks(markdown))
+        except NotionError as exc:
+            return JSONResponse({"error": str(exc)}, 502)
+        finally:
+            await client.aclose()
+        return JSONResponse({"id": page["id"], "url": page.get("url")}, 201)
+
     return Starlette(
         routes=[
             Route("/seg/{segment}/{path:path}", relay, methods=["GET", "POST"]),
+            Route("/publish", publish, methods=["POST"]),
             Route("/health", health),
             Route("/state", state),
             Route("/sessions", list_sessions, methods=["GET"]),

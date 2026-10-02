@@ -203,7 +203,8 @@ async def test_orchestrator_hands_off_to_osint_without_seeing_result(root, fake_
     """El usuario pide al orquestador (sin !) una investigación; este la pasa con agent.handoff al
     daemon de osint, que la ejecuta. El orquestador no ve el resultado (P2, ADR-0026)."""
     hs = FakeHomeserver()
-    main_scripts = [[call("agent.handoff", profile="osint", task="investiga ejemplo.com"),
+    # El modelo resume la tarea sin el dominio a propósito: el canal debe reenviar el texto literal.
+    main_scripts = [[call("agent.handoff", profile="osint", task="una investigación"),
                      final("Se lo paso a osint.")]]  # fmt: skip
     osint_scripts = [[call("osint.recon", workflow="domain_recon", target="ejemplo.com"),
                       final("ejemplo.com: 2 hallazgos")]]  # fmt: skip
@@ -222,6 +223,9 @@ async def test_orchestrator_hands_off_to_osint_without_seeing_result(root, fake_
     # El orquestador corrió y pasó la tarea; el trabajo real está en osint.
     assert [s["profile"] for s in main_sessions] == ["orchestrator"]
     assert [s["profile"] for s in osint_sessions] == ["osint"]
+    # Lo que llega a osint es el mensaje literal del usuario, no el resumen del modelo: de ahí
+    # saldría el alcance autorizado de un pentest (RF-LEG-01).
+    assert "el dominio ejemplo.com" in osint_sessions[0]["task"]
     recon = [e for s in osint_sessions for e in c["osint"].store.events(s["id"], ["tool_call"])]
     assert any(e.tool == "osint.recon" for e in recon)
     # El resultado de osint no entró en la sesión del orquestador.

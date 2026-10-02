@@ -260,11 +260,13 @@ async def _attach(
     on_state=None,
     segment: str | None = None,
     handoff_sink: list | None = None,
+    publish_sink: list | None = None,
 ) -> str:
     """Muestra el progreso en vivo y resuelve aprobaciones desde la terminal (canal CLI).
     `on_state(state, message)` (async) recibe blocked/working al pedir y resolver aprobaciones.
     `segment`: la sesión vive en el daemon de otro segmento (ADR-0026).
-    `handoff_sink`: si la sesión pasa la tarea a otro perfil (agent.handoff), se anota aquí."""
+    `handoff_sink`: si la sesión pasa la tarea a otro perfil (agent.handoff), se anota aquí.
+    `publish_sink`: solicitudes de publicar un informe en Notion (report.publish)."""
     import sys
 
     from argos.audit.events import parse_event
@@ -280,6 +282,9 @@ async def _attach(
                 continue
             if data.get("type") == "handoff" and handoff_sink is not None:
                 handoff_sink.append(data)
+                continue
+            if data.get("type") == "publish_request" and publish_sink is not None:
+                publish_sink.append(data)
                 continue
             if data.get("type") == "approval_request":
                 console.print(
@@ -407,23 +412,35 @@ def chat_cmd(
         if verbose:
             console.print(f"[dim]sesión {sid[:12]} · hilo {current['thread']}[/]")
         handoff: list = []
+        publishes: list = []
         await _attach(
             sid,
             compact=not verbose,
             on_state=herdr.state,
             segment=current["segment"],
             handoff_sink=handoff,
+            publish_sink=publishes,
         )
+        for pub in publishes:
+            # El informe se publica en Notion por el daemon principal, literal (ADR-0027).
+            try:
+                async with _client() as main:
+                    res = await main.publish(pub["title"], pub["markdown"], pub["parent"])
+                console.print(f"[green]📝 publicado en Notion:[/] {res.get('url')}")
+            except RuntimeError as exc:
+                console.print(f"[red]no se pudo publicar en Notion:[/] {exc}")
         if handoff:
             # El orquestador pasó la tarea a un perfil aislado (ADR-0026): la ejecuto en su núcleo
-            # y la conversación sigue allí. El resultado nunca vuelve al orquestador.
+            # y la conversación sigue allí. El resultado nunca vuelve al orquestador. Reenvío TU
+            # mensaje literal, no el resumen del modelo: de ahí sale el alcance autorizado del
+            # pentest (RF-LEG-01), no de lo que decida el modelo.
             h = handoff[-1]
             current.update(profile=h["target_profile"], segment=h["target_segment"], thread=None)
             console.print(
                 f"[dim]→ {h['target_profile']} (núcleo aislado; "
                 "/perfil orchestrator para volver)[/]"
             )
-            await one(h["task"], [])
+            await one(task, [])
 
     def command(line: str) -> None:
         cmd, _, rest = line.partition(" ")

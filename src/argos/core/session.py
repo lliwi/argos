@@ -52,6 +52,7 @@ from argos.tools.mcp_client import (
 )
 from argos.tools.memory import MemorySave, MemorySearch, MemoryUpdate
 from argos.tools.registry import ToolRegistry
+from argos.tools.report import PublishReportTool
 from argos.tools.scratchpad import SCRATCHPAD_TOOLS
 from argos.tools.shell import ShellExecTool
 from argos.tools.workspace import WORKSPACE_TOOLS
@@ -178,6 +179,7 @@ def build_tools(cfg: Config) -> ToolRegistry:
     for cls in (*WORKSPACE_TOOLS, *SCRATCHPAD_TOOLS):
         reg.register(cls())
     reg.register(ReadRefTool())
+    reg.register(PublishReportTool())
     return reg
 
 

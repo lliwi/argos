@@ -70,7 +70,9 @@ class _Run:
     lines: list[str] = field(default_factory=list)
     last_edit: float = 0.0
     segment: str = MAIN
+    user_task: str = ""  # el mensaje literal del usuario (fuente del alcance en un handoff)
     handoff: dict[str, Any] | None = None  # agent.handoff → reenviar a otro segmento (ADR-0026)
+    publishes: list[dict[str, Any]] = field(default_factory=list)  # report.publish → Notion
 
 
 class MatrixBridge:
@@ -319,7 +321,7 @@ class MatrixBridge:
         progress = await self.matrix.send_text(
             room_id, f"⏳ trabajando…{where}", thread_root=root, notice=True
         )
-        run = _Run(sid, room_id, root, progress, segment=segment)
+        run = _Run(sid, room_id, root, progress, segment=segment, user_task=task)
         self.runs[sid] = run
         self._spawn(self._follow(run))
 
@@ -333,6 +335,9 @@ class MatrixBridge:
                     continue
                 if kind == "handoff":
                     run.handoff = ev
+                    continue
+                if kind == "publish_request":
+                    run.publishes.append(ev)
                     continue
                 if line := progress_line(ev, run.session_id):
                     run.lines.append(line)
@@ -349,6 +354,14 @@ class MatrixBridge:
         answer = (final or {}).get("result") or (final or {}).get("message") or ""
         if answer:
             await self.matrix.send_text(run.room_id, answer, thread_root=run.thread_root)
+        for pub in run.publishes:
+            # Informe → Notion por el daemon principal, literal (ADR-0027): self.core = main.
+            try:
+                res = await self.core.publish(pub["title"], pub["markdown"], pub["parent"])
+                msg = f"📝 Informe publicado en Notion: {res.get('url')}"
+            except RuntimeError as exc:
+                msg = f"⚠️ No pude publicar el informe en Notion: {exc}"
+            await self.matrix.send_text(run.room_id, msg, thread_root=run.thread_root)
         if run.handoff:
             # El orquestador pasó la tarea a un perfil aislado (ADR-0026). Reenvío al daemon de ese
             # segmento; el hilo pasa a ser de ese perfil y su resultado va al usuario, no al
@@ -359,8 +372,13 @@ class MatrixBridge:
                 (run.room_id, run.thread_root),
             )
             self.db.commit()
+            # Tu mensaje literal, no el resumen del modelo: de ahí sale el alcance (RF-LEG-01).
             await self._submit(
-                run.room_id, run.thread_root, h["task"], h["target_segment"], h["target_profile"]
+                run.room_id,
+                run.thread_root,
+                run.user_task,
+                h["target_segment"],
+                h["target_profile"],
             )
 
     async def _maybe_edit(self, run: _Run, force: bool = False) -> None:

@@ -36,6 +36,18 @@ perfil (vacíos), así que todo pentest fallaba cerrado (RF-LEG-01) y había que
   Kali y `shell.exec` aplican el mismo `Scope`, y el `dry_run` del perfil (simular por defecto,
   RF-19) no cambia.
 
+### Informe a Notion desde un segmento aislado
+- `report.publish(title, parent, path=out/informe.md)` en pentest/osint: no crea nada, lee el
+  informe del workspace y emite `publish_request`. El canal lo publica llamando al **daemon
+  principal** (`POST /publish`), que crea la subpágina **literal** con el token de Notion del
+  inventario y `markdown_to_blocks` — sin que ningún modelo lea el texto. Así el contenido no
+  confiable del pentest no pasa por un agente con escritura: no hay superficie de inyección. La URL
+  se la devuelve el canal al usuario. Es la única vía cross-segmento desde pentest/osint, y es
+  estrecha (solo publica); a infra/orquestador nunca se les reenvía nada.
+- Las credenciales de prueba para pentest autenticado deben ir en el mismo mensaje que lanza la
+  acción: la tarea de esa sesión no se redacta, pero el historial del hilo sí, así que repetirlas en
+  un mensaje posterior llegaría censurado (RF-OB-11).
+
 ## Consecuencias
 - Para una auditoría/investigación basta pedírsela al orquestador; él la reenvía. El aislamiento de
   segmentos y P2 se mantienen porque el resultado no vuelve a su contexto.

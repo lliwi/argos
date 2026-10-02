@@ -1,7 +1,8 @@
 name: osint
 description: Investigación de fuentes abiertas (UC-1). Lee contenido no confiable => sin poder.
 tools: [shell.exec, workspace.*, scratchpad.*, agent.delegate, context.*, tools.*, skills.*, memory.*,
-        osint.*]           # backend OSINT propio (ADR-0023): personas => aprobación + purpose
+        osint.*,           # backend OSINT propio (ADR-0023): personas => aprobación + purpose
+        report.publish]    # informe a Notion vía daemon principal (ADR-0027)
 reads_untrusted: true
 secrets: []               # RF-SEC-03: nunca credenciales potentes (la api key del backend
                           # OSINT solo consulta; llega por secrets/osint.env, ADR-0023)
