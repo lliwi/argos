@@ -177,3 +177,16 @@ async def test_osint_command_inside_main_thread_is_refused(root, fake_sandbox, t
         await matrix.aclose()
     assert any("fuera de un hilo" in t for t in hs.texts())
     assert c["osint"].store.sessions() == []
+
+
+def test_orchestrator_knows_isolated_profiles_but_cannot_delegate(root):
+    from argos.core.session import isolated_profiles
+    from argos.core.subagent import DelegateTool
+
+    cfg = _cfg(root, "main")
+    iso = isolated_profiles(cfg)
+    assert set(iso) == {"osint", "pentest"}
+    tool = DelegateTool(None, 1000, "orchestrator", {"infra": "infra"}, iso)
+    assert "AISLADOS" in tool.description and "osint" in tool.description
+    assert "!osint" in tool.description and "/perfil" in tool.description
+    assert "osint" not in tool._targets  # informativo: sigue sin poder delegar ahí

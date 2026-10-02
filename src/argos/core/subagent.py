@@ -40,6 +40,7 @@ class DelegateTool(Tool):
         default_budget: int,
         own_profile: str,
         delegate_profiles: dict[str, str] | None = None,
+        isolated_profiles: dict[str, str] | None = None,
     ) -> None:
         self._spawn = spawn
         self._default_budget = default_budget
@@ -54,6 +55,16 @@ class DelegateTool(Tool):
                 "herramientas, credenciales y controles (aprobación humana donde aplique). "
                 "Devuelve solo el resultado. Enruta cada tarea al especialista adecuado."
             )
+            # Perfiles de otros segmentos (ADR-0026): existen, pero NO se delegan en ellos (P2).
+            # Se informa para que el agente no diga que no existen y explique cómo usarlos.
+            if isolated_profiles:
+                aislados = "; ".join(f"{n}: {d}" for n, d in isolated_profiles.items())
+                self.description += (
+                    f" Otros perfiles, AISLADOS en su propio núcleo (no puedes delegar en ellos "
+                    f"ni ver sus resultados) → {aislados}. Si el usuario los pide, dile que los "
+                    "use directamente: en Matrix `!<perfil> <tarea>` (p. ej. `!osint …`) y en el "
+                    "chat `/perfil <perfil>`."
+                )
         else:
             self.description = (
                 "Delega una subtarea acotada a un subagente con contexto limpio (mismo perfil y "

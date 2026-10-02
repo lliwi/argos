@@ -125,6 +125,12 @@ class LazySandbox:
             await self._inner.destroy()
 
 
+def isolated_profiles(cfg: Config) -> dict[str, str]:
+    """Perfiles de otros segmentos (ADR-0026): solo para que el orquestador sepa que existen y
+    cómo se usan; nunca son destino de delegación (P2, RF-SEC-02)."""
+    return {n: p.description for n, p in cfg.profiles.items() if not cfg.allows_profile(n)}
+
+
 def osint_credentials(inv, redactor: Redactor | None = None) -> tuple[str, str]:
     """URL y api key del backend OSINT: del inventario (host / main) o, en el contenedor osint
     —que no ve secrets/—, del entorno que carga secrets/osint.env (`argos osint-env`)."""
@@ -165,7 +171,11 @@ async def catalog(cfg: Config, profile_name: str) -> list[dict]:
             for n in profile.delegate_profiles
             if n in cfg.profiles and cfg.allows_profile(n)
         }
-        reg.register(DelegateTool(_noop, cfg.subagents.budget_tokens, profile.name, targets))
+        reg.register(
+            DelegateTool(
+                _noop, cfg.subagents.budget_tokens, profile.name, targets, isolated_profiles(cfg)
+            )
+        )
     mcp = McpConnections()
     try:
         if any(profile.allows_tool(f"reminders.{n}") for n in ("add", "list")):
@@ -528,7 +538,15 @@ async def _run(
                 for n in profile.delegate_profiles
                 if n in cfg.profiles and cfg.allows_profile(n)
             }
-            tools.register(DelegateTool(spawn, cfg.subagents.budget_tokens, profile.name, targets))
+            tools.register(
+                DelegateTool(
+                    spawn,
+                    cfg.subagents.budget_tokens,
+                    profile.name,
+                    targets,
+                    isolated_profiles(cfg),
+                )
+            )
 
         skills = SkillRegistry(cfg.root / "skills").for_profile(profile.skills)
         context_ref: list[ContextManager] = []
