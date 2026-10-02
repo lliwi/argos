@@ -34,7 +34,7 @@ async def running_core(cfg, store, scripts, sandbox, sched=None, hooks_port=None
     core = Core(
         cfg,
         store,
-        lambda: FakeProvider(queue.pop(0) if queue else [final()]),
+        lambda profile=None: FakeProvider(queue.pop(0) if queue else [final()]),
         sched or SchedulerCfg(),
     )
     core.manager.sandbox_factory = lambda: sandbox

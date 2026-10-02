@@ -39,7 +39,7 @@ async def running_cores(root, fake_sandbox, osint_scripts=(), main_scripts=()):
         core = Core(
             cfg,
             store,
-            lambda q=scripts: FakeProvider(q.pop(0) if q else [final()]),
+            lambda profile=None, q=scripts: FakeProvider(q.pop(0) if q else [final()]),
             SchedulerCfg(),
         )
         core.manager.sandbox_factory = lambda: fake_sandbox

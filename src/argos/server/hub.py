@@ -173,7 +173,7 @@ class SessionManager:
         coro = run_session(
             opts,
             self.cfg,
-            provider or self.provider_factory(),
+            provider or self.provider_factory(opts.profile),
             store=self.store,
             approver=approver,
             sandbox_factory=self.sandbox_factory,

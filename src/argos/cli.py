@@ -39,9 +39,11 @@ def _ctx() -> tuple[Config, AuditStore]:
     return cfg, AuditStore(cfg.data_path, Redactor(cfg.audit.redact_pii))
 
 
-def make_provider(cfg: Config, name: str | None = None) -> ModelProvider:
+def make_provider(
+    cfg: Config, name: str | None = None, profile: str | None = None
+) -> ModelProvider:
     try:
-        return factory.make_provider(cfg, name)
+        return factory.make_provider(cfg, name, profile)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
@@ -74,7 +76,7 @@ def run(
             run_session(
                 opts,
                 cfg,
-                make_provider(cfg, provider),
+                make_provider(cfg, provider, opts.profile),
                 store=store,
                 approver=cli_approver(),
                 on_progress=progress_printer(verbose=not quiet),
@@ -132,7 +134,8 @@ def serve(
         except ValueError as exc:
             console.print(f"[red]{exc}[/]")
             raise typer.Exit(2) from exc
-    core = Core(cfg, store, lambda: make_provider(cfg), load_scheduler_cfg(cfg))
+    core = Core(cfg, store, lambda profile=None: make_provider(cfg, profile=profile),
+                load_scheduler_cfg(cfg))  # fmt: skip
     console.print(
         f"[green]Argos[/] segmento [bold]{cfg.segment}[/] · API {cfg.api_socket}"
         + (f" + https://{api_host}:{api_port}" if tcp else "")

@@ -13,8 +13,34 @@ def engine_instructions(cfg: Config) -> str | None:
     return (cfg.root / path).read_text(encoding="utf-8") if path else None
 
 
-def make_provider(cfg: Config, name: str | None = None) -> ModelProvider:
+def _openrouter(cfg: Config) -> ModelProvider | None:
+    """Proveedor OpenRouter si el inventario lo tiene `enabled` con api_key y modelo (ADR-0028)."""
+    from argos.inventory import load_inventory
+    from argos.model.openrouter import OpenRouterProvider
+
+    svc = load_inventory(cfg.root).get("open-router")
+    if not svc or not svc.get("enabled"):
+        return None
+    key, model = svc.get("api_key"), svc.get("model")
+    if not key or not model:
+        return None
+    return OpenRouterProvider(str(key), str(model), cfg.model.timeout_s)
+
+
+def make_provider(
+    cfg: Config, name: str | None = None, profile: str | None = None
+) -> ModelProvider:
     name = name or cfg.model.provider
+    # Motor por perfil (ADR-0028): un perfil con engine=openrouter usa OpenRouter si está enabled
+    # en el inventario; solo sustituye al motor real, no al simulado (CI/evals siguen con fake).
+    if (
+        name != "fake"
+        and profile
+        and cfg.profiles.get(profile)
+        and (cfg.profiles[profile].engine == "openrouter")
+    ):
+        if provider := _openrouter(cfg):
+            return provider
     if name == "codex":
         c = cfg.model.codex
         return CodexCliProvider(
