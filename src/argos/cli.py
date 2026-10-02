@@ -206,12 +206,14 @@ def api_setup_cmd(
     )
 
 
-def _client():
+def _client(segment: str | None = None):
+    """Cliente del daemon del segmento activo o, con `segment`, del de otro segmento."""
     from argos.server.client import CoreClient, CoreUnavailable
 
     cfg = load_config()
+    other = segment if segment and segment != cfg.segment else None
     try:
-        return CoreClient.connect(cfg.api_socket, cfg.root)
+        return CoreClient.connect(cfg.api_socket, cfg.root, segment=other)
     except CoreUnavailable as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(2) from exc
@@ -251,9 +253,16 @@ def _compact_line(data: dict, root: str) -> str | None:
     return None
 
 
-async def _attach(sid: str, interactive: bool = True, compact: bool = False, on_state=None) -> str:
+async def _attach(
+    sid: str,
+    interactive: bool = True,
+    compact: bool = False,
+    on_state=None,
+    segment: str | None = None,
+) -> str:
     """Muestra el progreso en vivo y resuelve aprobaciones desde la terminal (canal CLI).
-    `on_state(state, message)` (async) recibe blocked/working al pedir y resolver aprobaciones."""
+    `on_state(state, message)` (async) recibe blocked/working al pedir y resolver aprobaciones.
+    `segment`: la sesión vive en el daemon de otro segmento (ADR-0026)."""
     import sys
 
     from argos.audit.events import parse_event
@@ -261,7 +270,7 @@ async def _attach(sid: str, interactive: bool = True, compact: bool = False, on_
 
     _, store = _ctx()
     status = "desconocido"
-    async with _client() as client:
+    async with _client(segment) as client:
         async for data in client.events(sid):
             if data.get("type") == "stream_end":
                 status = data.get("status", status)
@@ -347,11 +356,18 @@ def chat_cmd(
     from argos.attachments import AttachmentError
     from argos.channels.chat_input import ChatInput, Pending
     from argos.channels.console import HerdrReporter
-    from argos.state import StateStore
+    from argos.server.client import CoreClient
 
     cfg = load_config()
-    state = StateStore(cfg.data_path / "state.db")
-    current: dict[str, str | None] = {"thread": thread}
+    if profile not in cfg.profiles:
+        raise typer.BadParameter(f"perfil desconocido: {profile!r} ({sorted(cfg.profiles)})")
+    # Perfil y segmento activos: /perfil cambia a otro, incluso de otro segmento (ADR-0026),
+    # que atiende su propio daemon.
+    current: dict[str, str | None] = {
+        "thread": thread,
+        "profile": profile,
+        "segment": cfg.segment_of(profile),
+    }
     pending = Pending()
     # Dentro de Herdr, el chat se anuncia como agente (lista «agentes» de la barra lateral).
     herdr = HerdrReporter()
@@ -362,25 +378,30 @@ def chat_cmd(
     def report(st: str, msg: str) -> None:
         asyncio.run(herdr.state(st, msg))
 
+    def core() -> CoreClient:
+        # CoreUnavailable (RuntimeError) en vez de salir: el chat lo muestra y sigue abierto.
+        other = current["segment"] if current["segment"] != cfg.segment else None
+        return CoreClient.connect(cfg.api_socket, cfg.root, segment=other)
+
     async def new_thread(title: str) -> str:
-        async with _client() as client:
-            return (await client.create_thread(title, profile, "chat"))["id"]
+        async with core() as client:
+            return (await client.create_thread(title, current["profile"], "chat"))["id"]
 
     async def one(task: str, attachments: list) -> None:
         if not current["thread"]:
             current["thread"] = await new_thread(task[:60])
         await herdr.state("working", task[:80])
-        async with _client() as client:
+        async with core() as client:
             sid = await client.submit(
                 task=task,
-                profile=profile,
+                profile=current["profile"],
                 channel="chat",
                 thread_id=current["thread"],
                 attachments=[a.to_api() for a in attachments],
             )
         if verbose:
             console.print(f"[dim]sesión {sid[:12]} · hilo {current['thread']}[/]")
-        await _attach(sid, compact=not verbose, on_state=herdr.state)
+        await _attach(sid, compact=not verbose, on_state=herdr.state, segment=current["segment"])
 
     def command(line: str) -> None:
         cmd, _, rest = line.partition(" ")
@@ -413,32 +434,60 @@ def chat_cmd(
         elif cmd == "/new":
             current["thread"] = None
             console.print("[dim]nueva conversación[/]")
+        elif cmd == "/perfil":
+            name = rest.strip()
+            if name not in cfg.profiles:
+                console.print(
+                    f"perfil actual: {current['profile']} ({current['segment']}). "
+                    f"Disponibles: {', '.join(sorted(cfg.profiles))}"
+                )
+                return
+            current.update(profile=name, segment=cfg.segment_of(name), thread=None)
+            aside = "" if current["segment"] == cfg.segment else " · su propio núcleo, aislado"
+            console.print(
+                f"[bold]perfil {name}[/] ({current['segment']}{aside}) · conversación nueva"
+            )
         elif cmd == "/threads":
-            for t in state.threads(10):
-                mark = "›" if t.id == current["thread"] else " "
-                console.print(
-                    f"{mark} {t.id}  {t.updated_at[:16]}  {t.title}", markup=False, highlight=False
-                )
-            console.print("[dim]retoma uno con: argos chat --thread <id>[/]")
+            # Por la API: los hilos viven en el núcleo de cada segmento (también si es remoto).
+            async def show_threads() -> None:
+                async with core() as client:
+                    for t in (await client.threads())[:10]:
+                        mark = "›" if t["id"] == current["thread"] else " "
+                        console.print(
+                            f"{mark} {t['id']}  {t['updated_at'][:16]}  {t['title']}",
+                            markup=False,
+                            highlight=False,
+                        )
+
+            asyncio.run(show_threads())
+            console.print("[dim]retoma uno con: argos chat --thread <id> [-p perfil][/]")
         elif cmd in ("/memoria", "/memory"):
-            for m in state.memories(profile, limit=15):
-                who = "tú" if m.provenance == "user" else "agente"
-                pin = "📌" if m.pinned else " "
-                console.print(
-                    f"{pin} {m.id} [{m.kind} · {who}] {m.content}", markup=False, highlight=False
-                )
+
+            async def show_memory() -> None:
+                async with core() as client:
+                    for m in (await client.memories(current["profile"]))[:15]:
+                        who = "tú" if m["provenance"] == "user" else "agente"
+                        pin = "📌" if m.get("pinned") else " "
+                        console.print(
+                            f"{pin} {m['id']} [{m['kind']} · {who}] {m['content']}",
+                            markup=False,
+                            highlight=False,
+                        )
+
+            asyncio.run(show_memory())
         elif cmd in ("/herramientas", "/tools"):
 
             async def show_tools() -> None:
-                async with _client() as client:
-                    console.print(_render_tools(await client.tools(profile)))
+                async with core() as client:
+                    console.print(_render_tools(await client.tools(current["profile"])))
 
             asyncio.run(show_tools())
         else:
             console.print(
                 "/adjuntar <ruta>  adjuntar fichero/imagen · /adjuntos  ver · /quitar [n]  "
                 "descartar · /new  nueva conversación · /threads  hilos · /memoria  lo que "
-                "recuerda · /herramientas  tools del perfil\n"
+                "recuerda · /herramientas  tools del perfil · /perfil <nombre>  cambiar de "
+                "perfil (osint y pentest: su propio núcleo, aislado)\n"
                 "Flechas: editar e historial · Alt-Enter: salto de línea · Ctrl-V: pegar imagen "
                 "· arrastra ficheros para adjuntarlos · Ctrl-D: salir"
             )
@@ -464,7 +513,10 @@ def chat_cmd(
             if not task and not pending.items:
                 continue
             if task.startswith("/"):
-                command(task)
+                try:
+                    command(task)
+                except RuntimeError as exc:  # p. ej. el núcleo de ese segmento está parado
+                    console.print(f"[red]{exc}[/]")
                 continue
             if not task:
                 task = "Revisa los adjuntos."
@@ -514,8 +566,18 @@ def matrix_cmd() -> None:
     if not cfg.allows_profile(mc.profile):
         raise typer.BadParameter(f"perfil {mc.profile!r} fuera del segmento {cfg.segment!r}")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    # Perfiles de los otros segmentos (osint, pentest): !<perfil> los atiende su propio daemon.
+    others = {
+        p: seg
+        for seg, sc in cfg.segments.items()
+        if seg != cfg.segment
+        for p in sc.profiles
+        if p != "*" and p in cfg.profiles
+    }
 
     async def go() -> None:
+        from argos.server.client import CoreClient
+
         matrix = MatrixClient(mc.homeserver, token)
         try:
             async with _client() as core:
@@ -528,10 +590,17 @@ def matrix_cmd() -> None:
                         notify_room=mc.notify_room,
                         progress_interval_s=mc.progress_interval_s,
                         open_dm=mc.open_dm,
+                        segment_profiles=others,
                     ),
                     cfg.data_path / "matrix.db",
+                    segment_client=lambda seg: CoreClient.connect(
+                        cfg.api_socket, cfg.root, segment=seg
+                    ),
                 )
-                await bridge.run()
+                try:
+                    await bridge.run()
+                finally:
+                    await bridge.aclose()
         finally:
             await matrix.aclose()
 

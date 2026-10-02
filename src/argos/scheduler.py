@@ -164,6 +164,10 @@ def load_scheduler_cfg(cfg: Config) -> SchedulerCfg:
                 f"hook {hook.name!r}: el perfil {prof.name!r} tiene secretos potentes;"
                 " un payload externo no confiable no puede llegar ahí (P2)"
             )
+    # Cada segmento tiene su daemon (ADR-0026): solo se queda con lo que puede ejecutar, para
+    # que el daemon de osint no dispare (ni rechace en bucle) las tareas del orquestador.
+    sc.schedules = [s for s in sc.schedules if cfg.allows_profile(s.profile)]
+    sc.hooks = [h for h in sc.hooks if cfg.allows_profile(h.profile)]
     return sc
 
 

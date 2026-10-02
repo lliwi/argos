@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Levanta el núcleo persistente de Argos (daemon + puente Matrix, segmento main).
+# Levanta los núcleos persistentes de Argos: main (daemon + puente Matrix) y osint (ADR-0026).
 # Uso: scripts/up.sh [--prod] [args extra de `docker compose up`]
 #   --prod  aplica compose.prod.yaml: IP macvlan propia (int-lan) y API TCP con TLS + token
 #           (ADR-0025). Requiere `argos api-setup <ip>` una vez.
@@ -18,6 +18,10 @@ if [[ "${1:-}" == "--prod" ]]; then
   files+=(-f compose.prod.yaml)
 fi
 
-docker compose "${files[@]}" up -d egress-main broker
-docker compose "${files[@]}" --profile daemon up -d "$@" daemon matrix
-docker compose "${files[@]}" --profile daemon ps daemon matrix
+# Sockets de control de cada segmento: si los creara Docker al montarlos, serían de root.
+for s in main osint pentest; do mkdir -p "var/segments/$s/run" && chmod 700 "var/segments/$s/run"; done
+
+docker compose "${files[@]}" up -d egress-main egress-osint broker
+docker compose "${files[@]}" --profile daemon up -d "$@" daemon daemon-osint matrix
+docker compose "${files[@]}" --profile daemon ps daemon daemon-osint matrix
+echo "pentest (bajo demanda): docker compose --profile pentest --profile kali up -d daemon-pentest kali egress-pentest"

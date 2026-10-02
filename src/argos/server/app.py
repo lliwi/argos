@@ -24,7 +24,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
 from starlette.applications import Starlette
+from starlette.background import BackgroundTask
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
@@ -383,8 +385,48 @@ def build_api(core: Core) -> Starlette:
         sid = core.scheduler.fire(sch, reason="manual")
         return JSONResponse({"session_id": sid, "skipped": sid is None})
 
+    async def relay(request: Request):
+        """Relé hacia el daemon de otro segmento (ADR-0026), para clientes que solo alcanzan a
+        este (p. ej. el chat remoto). Reenvía bytes por el socket de ese segmento sin
+        interpretarlos: nada de su contenido entra en sesiones ni en el contexto de este núcleo."""
+        seg = request.path_params["segment"]
+        if seg == core.cfg.segment or seg not in core.cfg.segments:
+            return JSONResponse({"error": f"segmento desconocido: {seg}"}, 404)
+        sock = core.cfg.base_path / "segments" / seg / "run" / "argos.sock"
+        if not sock.exists():
+            return JSONResponse({"error": f"el núcleo del segmento {seg} no está en marcha"}, 503)
+        client = httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=str(sock)),
+            base_url="http://argos",
+            timeout=httpx.Timeout(30, read=None),  # los flujos SSE duran lo que la sesión
+        )
+        upstream = client.build_request(
+            request.method,
+            "/" + request.path_params["path"],
+            params=request.query_params,
+            content=await request.body(),
+            headers={"content-type": request.headers.get("content-type", "application/json")},
+        )
+        try:
+            resp = await client.send(upstream, stream=True)
+        except httpx.TransportError as exc:
+            await client.aclose()
+            return JSONResponse({"error": f"núcleo {seg} no disponible: {exc}"}, 503)
+
+        async def close() -> None:
+            await resp.aclose()
+            await client.aclose()
+
+        return StreamingResponse(
+            resp.aiter_raw(),
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+            background=BackgroundTask(close),
+        )
+
     return Starlette(
         routes=[
+            Route("/seg/{segment}/{path:path}", relay, methods=["GET", "POST"]),
             Route("/health", health),
             Route("/state", state),
             Route("/sessions", list_sessions, methods=["GET"]),

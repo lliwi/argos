@@ -167,9 +167,58 @@ services:
       - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
       - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
       - ${ARGOS_DIR}/var/broker/main:${ARGOS_DIR}/var/broker/main
+      # Solo los sockets de control de los otros segmentos (relé del chat remoto, ADR-0026):
+      # ni sus datos ni su red.
+      - ${ARGOS_DIR}/var/segments/osint/run:${ARGOS_DIR}/var/segments/osint/run
+      - ${ARGOS_DIR}/var/segments/pentest/run:${ARGOS_DIR}/var/segments/pentest/run
       - ${ARGOS_CODEX_HOME}:/codex
       - ${ARGOS_AGE_DIR}:/age
     depends_on: [egress-main, broker]
+
+  # Núcleos persistentes de osint y pentest (ADR-0026): misma contención que core-osint /
+  # core-pentest (sin secrets/, su red, sus datos). Se les habla desde Matrix (!osint, !pentest)
+  # o desde el chat (/perfil); el orquestador nunca lee su salida (P2). Pentest, bajo demanda:
+  #   docker compose --profile pentest up -d daemon-pentest
+  daemon-osint:
+    <<: *core
+    profiles: [daemon]
+    command: ["serve"]
+    restart: unless-stopped
+    stdin_open: false
+    tty: false
+    networks: [egress_osint]
+    env_file: [{path: secrets/osint.env, required: false}]
+    environment:
+      ARGOS_SEGMENT: osint
+      PYTHONPATH: ${ARGOS_DIR}/src
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
+      - {type: tmpfs, target: "${ARGOS_DIR}/secrets", tmpfs: {size: 1m}}  # sin credenciales
+      - ${ARGOS_DIR}/var/segments/osint:${ARGOS_DIR}/var/segments/osint
+      - ${ARGOS_DIR}/var/broker/osint:${ARGOS_DIR}/var/broker/osint
+      - ${ARGOS_CODEX_HOME}:/codex
+    depends_on: [egress-osint, broker]
+
+  daemon-pentest:
+    <<: *core
+    profiles: [pentest]
+    command: ["serve"]
+    restart: unless-stopped
+    stdin_open: false
+    tty: false
+    networks: [egress_pentest, kali]
+    environment:
+      ARGOS_SEGMENT: pentest
+      PYTHONPATH: ${ARGOS_DIR}/src
+    volumes:
+      - ${ARGOS_DIR}:${ARGOS_DIR}:ro
+      - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
+      - {type: tmpfs, target: "${ARGOS_DIR}/secrets", tmpfs: {size: 1m}}  # sin credenciales
+      - ${ARGOS_DIR}/var/segments/pentest:${ARGOS_DIR}/var/segments/pentest
+      - ${ARGOS_DIR}/var/broker/pentest:${ARGOS_DIR}/var/broker/pentest
+      - ${ARGOS_CODEX_HOME}:/codex
+    depends_on: [egress-pentest, broker]
 
   # Puente Matrix (RF-07): cliente de la API del núcleo `daemon`. Sin socket Docker, sin clave age
   # y sin `secrets/`: su token llega por entorno (secrets/matrix.env, `argos matrix-login`).
@@ -189,6 +238,9 @@ services:
       - {type: tmpfs, target: "${ARGOS_DIR}/var", tmpfs: {size: 1m}}      # otros segmentos: fuera
       - {type: tmpfs, target: "${ARGOS_DIR}/secrets", tmpfs: {size: 1m}}  # sin credenciales
       - ${ARGOS_DIR}/var/segments/main:${ARGOS_DIR}/var/segments/main
+      # Sockets de control de osint/pentest (!osint, !pentest; ADR-0026): solo transporta texto.
+      - ${ARGOS_DIR}/var/segments/osint/run:${ARGOS_DIR}/var/segments/osint/run
+      - ${ARGOS_DIR}/var/segments/pentest/run:${ARGOS_DIR}/var/segments/pentest/run
     networks: [egress_main]
     depends_on: [daemon]
 

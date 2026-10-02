@@ -58,12 +58,19 @@ class CoreClient:
         )
 
     @classmethod
-    def connect(cls, socket_path: Path, root: Path, timeout: float = 30) -> CoreClient:
+    def connect(
+        cls, socket_path: Path, root: Path, timeout: float = 30, segment: str | None = None
+    ) -> CoreClient:
         """Remoto si hay ARGOS_API_URL; si no, el socket local. ARGOS_API_CA relativo se
-        resuelve desde la raíz del repo."""
+        resuelve desde la raíz del repo. `segment` (otro que el del socket) apunta al daemon de
+        ese segmento: en local, su socket; en remoto, el relé `/seg/<segmento>` (ADR-0026)."""
         url = os.environ.get("ARGOS_API_URL", "").strip()
         if not url:
+            if segment:  # …/segments/<seg>/run/argos.sock
+                socket_path = socket_path.parents[2] / segment / "run" / socket_path.name
             return cls(socket_path, timeout)
+        if segment:
+            url = f"{url.rstrip('/')}/seg/{segment}"
         ca_env = os.environ.get("ARGOS_API_CA", "").strip()
         ca = (root / ca_env if not Path(ca_env).is_absolute() else Path(ca_env)) if ca_env else None
         return cls(

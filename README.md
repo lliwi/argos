@@ -87,6 +87,12 @@ docker compose --profile daemon up -d daemon matrix
 Invita al bot a una sala **sin cifrar** y escríbele. Aprobaciones con «sí»/«no» o ✅/❌; `!ayuda`
 ([ADR-0012](docs/adr/0012-canal-matrix.md)).
 
+**OSINT y pentest** tienen su propio daemon, aislado del orquestador
+([ADR-0026](docs/adr/0026-daemon-por-segmento.md)): en Matrix, `!osint <tarea>` o
+`!pentest <tarea>` abren un hilo atendido por ese segmento; en el chat, `/perfil osint`.
+`scripts/up.sh` arranca `daemon-osint`; pentest va bajo demanda:
+`docker compose --profile pentest --profile kali up -d daemon-pentest kali egress-pentest`.
+
 ## Pentest de servicios propios (UC-2)
 Auditoría de tus propios servicios web con Kali, con alcance y autorización obligatorios
 ([ADR-0013](docs/adr/0013-mcp-kali-pentest.md)). En `config/profiles/pentest.yaml`:

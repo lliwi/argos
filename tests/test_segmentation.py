@@ -18,8 +18,14 @@ SEGMENT = {
     "matrix": "main",
     "core-osint": "osint",
     "core-pentest": "pentest",
+    "daemon-osint": "osint",
+    "daemon-pentest": "pentest",
 }
 NEEDS_SECRETS = {"core", "daemon"}  # inventario y SOPS: solo el núcleo de main
+# Solo el relé del daemon y el puente Matrix (main) alcanzan a otros segmentos, y únicamente por
+# su socket de control (ADR-0026): nunca sus datos, su broker ni su red.
+CONTROL_SOCKETS = {"${ARGOS_DIR}/var/segments/osint/run", "${ARGOS_DIR}/var/segments/pentest/run"}
+SEES_CONTROL = {"daemon", "matrix"}
 
 
 def _mounts(name: str) -> tuple[set[str], set[str]]:
@@ -45,6 +51,9 @@ def test_each_core_only_sees_its_segment_data():
         binds, tmpfs = _mounts(name)
         assert "${ARGOS_DIR}/var" in tmpfs, f"{name}: var/ de otros segmentos visible"
         data = {b for b in binds if b.startswith("${ARGOS_DIR}/var/")}
+        control = data & CONTROL_SOCKETS
+        assert control == (CONTROL_SOCKETS if name in SEES_CONTROL else set()), (name, control)
+        data -= control
         assert data and all(b.endswith(f"/{seg}") for b in data), (name, data)
 
 
@@ -63,6 +72,15 @@ def test_no_network_shared_between_segments():
 def test_tokens_live_under_secrets():
     assert SERVICES["matrix"]["env_file"][0]["path"] == "secrets/matrix.env"
     assert SERVICES["daemon"]["env_file"][0]["path"] == "secrets/hooks.env"
-    assert SERVICES["core-osint"]["env_file"] == [{"path": "secrets/osint.env", "required": False}]
+    for osint in ("core-osint", "daemon-osint"):
+        assert SERVICES[osint]["env_file"] == [{"path": "secrets/osint.env", "required": False}]
     assert "env_file" not in SERVICES["core-pentest"]
+    assert "env_file" not in SERVICES["daemon-pentest"]
+
+
+def test_segment_daemons_only_serve_their_socket():
+    """Los daemons de osint/pentest no publican puertos ni webhooks: solo su socket Unix."""
+    for name in ("daemon-osint", "daemon-pentest"):
+        assert SERVICES[name]["command"] == ["serve"], name
+        assert "ports" not in SERVICES[name], name
     assert "docker.sock" not in str([SERVICES[n].get("volumes") for n in SEGMENT])
