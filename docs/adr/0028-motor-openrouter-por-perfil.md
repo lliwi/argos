@@ -1,6 +1,6 @@
 # ADR-0028 — Motor de modelo por perfil: OpenRouter para pentest
 
-- **Estado:** aceptado
+- **Estado:** reemplazado por ADR-0029
 - **Fecha:** 2026-10-02
 - **Requisitos:** RF-05, ADR-0001, RF-SEC-04
 

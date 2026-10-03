@@ -476,6 +476,15 @@ def chat_cmd(
         elif cmd == "/new":
             current["thread"] = None
             console.print("[dim]nueva conversación[/]")
+        elif cmd[1:] in cfg.profiles:
+            # /<perfil> [tarea]: cambia de perfil y, si das tarea, la ejecuta ya en ese perfil
+            # (vía directa y DETERMINISTA a osint/pentest; no depende de que el orquestador enrute).
+            name = cmd[1:]
+            current.update(profile=name, segment=cfg.segment_of(name), thread=None)
+            aside = "" if current["segment"] == cfg.segment else " · su propio núcleo, aislado"
+            console.print(f"[bold]perfil {name}[/] ({current['segment']}{aside})")
+            if rest.strip():
+                asyncio.run(one(rest.strip(), []))
         elif cmd == "/perfil":
             name = rest.strip()
             if name not in cfg.profiles:
@@ -529,7 +538,8 @@ def chat_cmd(
                 "/adjuntar <ruta>  adjuntar fichero/imagen · /adjuntos  ver · /quitar [n]  "
                 "descartar · /new  nueva conversación · /threads  hilos · /memoria  lo que "
                 "recuerda · /herramientas  tools del perfil · /perfil <nombre>  cambiar de "
-                "perfil (osint y pentest: su propio núcleo, aislado)\n"
+                "perfil · /pentest <tarea> · /osint <tarea>  ejecutar directo en ese perfil "
+                "aislado\n"
                 "Flechas: editar e historial · Alt-Enter: salto de línea · Ctrl-V: pegar imagen "
                 "· arrastra ficheros para adjuntarlos · Ctrl-D: salir"
             )

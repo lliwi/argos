@@ -13,33 +13,39 @@ def engine_instructions(cfg: Config) -> str | None:
     return (cfg.root / path).read_text(encoding="utf-8") if path else None
 
 
-def _openrouter(cfg: Config) -> ModelProvider | None:
-    """Proveedor OpenRouter si el inventario lo tiene `enabled` con api_key y modelo (ADR-0028)."""
-    from argos.inventory import load_inventory
-    from argos.model.openrouter import OpenRouterProvider
+def _local_model(cfg: Config) -> ModelProvider | None:
+    """Modelo local si el inventario lo tiene `enabled` con provider, url y modelo (ADR-0029).
 
-    svc = load_inventory(cfg.root).get("open-router")
+    La api_key es opcional (Ollama y llama.cpp no suelen pedirla; vLLM con `--api-key` sí).
+    """
+    from argos.inventory import load_inventory
+    from argos.model.local import PROVIDERS, LocalModelProvider
+
+    svc = load_inventory(cfg.root).get("local-model")
     if not svc or not svc.get("enabled"):
         return None
-    key, model = svc.get("api_key"), svc.get("model")
-    if not key or not model:
+    provider, url, model = svc.get("provider"), svc.get("url"), svc.get("model")
+    if provider not in PROVIDERS or not url or not model:
         return None
-    return OpenRouterProvider(str(key), str(model), cfg.model.timeout_s)
+    key = svc.get("api_key")
+    return LocalModelProvider(
+        str(provider), str(url), str(model), str(key) if key else None, cfg.model.timeout_s
+    )
 
 
 def make_provider(
     cfg: Config, name: str | None = None, profile: str | None = None
 ) -> ModelProvider:
     name = name or cfg.model.provider
-    # Motor por perfil (ADR-0028): un perfil con engine=openrouter usa OpenRouter si está enabled
+    # Motor por perfil (ADR-0029): un perfil con engine=local usa el modelo local si está enabled
     # en el inventario; solo sustituye al motor real, no al simulado (CI/evals siguen con fake).
     if (
         name != "fake"
         and profile
         and cfg.profiles.get(profile)
-        and (cfg.profiles[profile].engine == "openrouter")
+        and (cfg.profiles[profile].engine == "local")
     ):
-        if provider := _openrouter(cfg):
+        if provider := _local_model(cfg):
             return provider
     if name == "codex":
         c = cfg.model.codex
