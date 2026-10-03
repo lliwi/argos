@@ -64,7 +64,9 @@ class LocalModelProvider:
         await self._http.aclose()
 
     async def complete(self, request: ModelRequest, route: Route | None = None) -> ModelResponse:
-        model = (route.model if route and route.model else None) or self._model
+        # Se ignora `route.model`: las rutas (decide/hard/internal) nombran modelos de Codex, que no
+        # existen en el servidor local. El servidor sirve un único modelo, el del inventario.
+        model = self._model
         # El contrato (system + tools + historial + formato de la decisión) va en render(), un
         # único prompt estable entre turnos (favorece caché de prefijo, RF-CTX-01).
         payload: dict[str, Any] = {

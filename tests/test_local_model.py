@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from argos.model.base import Message, ModelAuthError, ModelError, ModelRequest
+from argos.model.base import Message, ModelAuthError, ModelError, ModelRequest, Route
 from argos.model.local import LocalModelProvider, api_base
 
 
@@ -47,14 +47,15 @@ async def test_completion_parses_decision_and_usage():
 
     p = _provider(handler)
     try:
-        r = await p.complete(_req())
+        # La ruta nombra un modelo de Codex (gpt-*); el provider local la ignora y usa el suyo.
+        r = await p.complete(_req(), Route("decide", model="gpt-6-sol"))
     finally:
         await p.aclose()
     assert r.decision.type == "final" and r.decision.message == "listo"
     assert r.usage.prompt_tokens == 11 and r.usage.completion_tokens == 3
     assert captured["url"] == "http://modelo.local:11434/v1/chat/completions"
     assert captured["auth"] is None  # sin api_key no se envía Authorization
-    assert captured["body"]["model"] == "qwen3:8b"
+    assert captured["body"]["model"] == "qwen3:8b"  # el del inventario, no el de la ruta
     assert captured["body"]["messages"][0]["role"] == "user"  # render() completo como prompt
 
 
