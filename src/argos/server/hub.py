@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -21,6 +22,8 @@ from argos.config import Config
 from argos.core.session import SessionOptions, SessionRefused, run_session
 from argos.governance.approval import ApprovalRequest, Approver, Decision, NoApprover
 from argos.model.base import ModelProvider
+
+logger = logging.getLogger("argos.session")
 
 
 class EventBus:
@@ -190,6 +193,14 @@ class SessionManager:
         if task.cancelled():
             entry.result = {"status": "aborted", "message": "cancelada"}
         elif (exc := task.exception()) is not None:
+            # Excepción inesperada (no un fallo del modelo ya auditado): el bucle no llegó a
+            # registrarla, así que dejamos la traza completa en el log para poder diagnosticarla.
+            logger.error(
+                "sesión %s (perfil %s) falló con excepción no controlada",
+                entry.session_id,
+                entry.profile,
+                exc_info=exc,
+            )
             entry.result = {"status": "failed", "message": f"{type(exc).__name__}: {exc}"}
         else:
             r = task.result()

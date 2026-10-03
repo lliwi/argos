@@ -39,6 +39,24 @@ def _ctx() -> tuple[Config, AuditStore]:
     return cfg, AuditStore(cfg.data_path, Redactor(cfg.audit.redact_pii))
 
 
+def _setup_file_logging(cfg: Config) -> Path:
+    """Logging a `var/segments/<seg>/argos.log` para los daemons de larga vida (serve, matrix): así
+    las excepciones no controladas quedan con su traza y se pueden compartir. Devuelve la ruta."""
+    import logging
+    from logging.handlers import RotatingFileHandler
+
+    log_path = cfg.data_path / "argos.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    # Evita duplicar el handler si se reinicializa en el mismo proceso.
+    if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        root.addHandler(handler)
+    return log_path
+
+
 def make_provider(
     cfg: Config, name: str | None = None, profile: str | None = None
 ) -> ModelProvider:
@@ -134,6 +152,7 @@ def serve(
         except ValueError as exc:
             console.print(f"[red]{exc}[/]")
             raise typer.Exit(2) from exc
+    log_path = _setup_file_logging(cfg)
     core = Core(cfg, store, lambda profile=None: make_provider(cfg, profile=profile),
                 load_scheduler_cfg(cfg))  # fmt: skip
     console.print(
@@ -141,6 +160,7 @@ def serve(
         + (f" + https://{api_host}:{api_port}" if tcp else "")
         + (f" · webhooks {hooks_host}:{hooks_port}" if hooks_port else "")
         + f" · {len(core.scheduler.sched.schedules)} tareas programadas"
+        + f" · log {log_path}"
     )
     try:
         asyncio.run(run_server(core, cfg.api_socket, hooks_host, hooks_port, tcp_api=tcp))
@@ -591,7 +611,6 @@ def chat_cmd(
 @app.command("matrix")
 def matrix_cmd() -> None:
     """Puente Matrix: tareas por mensaje, progreso en hilos y aprobaciones desde el móvil."""
-    import logging
     import os
 
     from argos.channels.matrix.bridge import BridgeConfig, MatrixBridge
@@ -617,7 +636,8 @@ def matrix_cmd() -> None:
         raise typer.Exit(2)
     if not cfg.allows_profile(mc.profile):
         raise typer.BadParameter(f"perfil {mc.profile!r} fuera del segmento {cfg.segment!r}")
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    log_path = _setup_file_logging(cfg)
+    console.print(f"[dim]log en {log_path}[/]")
     # Perfiles de los otros segmentos (osint, pentest): !<perfil> los atiende su propio daemon.
     others = {
         p: seg
