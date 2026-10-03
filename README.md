@@ -10,7 +10,7 @@ auditoría JSONL+SQLite, presupuestos/kill switch/HITL y runner de evaluación.
 ## Arranque rápido
 ```bash
 uv sync
-docker compose build            # imagen de sandbox + proxy de egress
+scripts/build.sh                # imágenes (cada tag una vez; evita el 'AlreadyExists' de containerd)
 docker compose up -d egress-main   # sandbox del segmento main (host: ARGOS_SEGMENT=main)
 uv run argos run --profile personal "instala pandas y calcula la media de 1..10"
 uv run argos audit list
@@ -37,7 +37,7 @@ Cada segmento de seguridad (`main`, `osint`, `pentest`) tiene núcleo, red de sa
 egress y datos propios ([ADR-0008](docs/adr/0008-segmentacion-por-contenedor.md)).
 ```bash
 scripts/setup-env.sh                                   # genera .env (UID, grupo docker, rutas)
-docker compose --profile build --profile core build    # imágenes sandbox, proxy y núcleo
+scripts/build.sh                                       # imágenes sandbox, proxy y núcleo (--kali para pentest)
 docker compose up -d egress-main egress-osint egress-pentest
 docker compose run --rm --entrypoint codex core login --device-auth   # una vez
 scripts/argos run "..."                                # segmento main
