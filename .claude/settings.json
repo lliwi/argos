@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git checkout *)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(.venv/bin/pytest -q tests/test_pentest.py -p no:cacheprovider)"
     ]
   }
 }

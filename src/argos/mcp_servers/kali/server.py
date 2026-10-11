@@ -157,8 +157,8 @@ async def install(packages: str) -> str:
     p. ej. 'ffuf feroxbuster'. Solo instala paquetes, no ejecuta comandos."""
     if not _scope().authorized:
         return (
-            "RECHAZADO: perfil de pentest sin alcance/autorización; configura `scope` y "
-            "`authorization_ref` antes de provisionar el entorno."
+            "RECHAZADO: no hay objetivo de pentest; pide al usuario el host o URL a auditar "
+            "antes de provisionar el entorno."
         )
     try:
         names = _parse_packages(packages)
@@ -181,7 +181,7 @@ async def install(packages: str) -> str:
 async def apt_update() -> str:
     """Refresca el índice de paquetes apt del contenedor Kali (antes de instalar)."""
     if not _scope().authorized:
-        return "RECHAZADO: perfil de pentest sin alcance/autorización."
+        return "RECHAZADO: no hay objetivo de pentest; pide al usuario el host o URL a auditar."
     if _dry_run():
         return "[dry-run] no se ejecuta. Se refrescaría el índice de paquetes (apt-get update)."
     client = _client()

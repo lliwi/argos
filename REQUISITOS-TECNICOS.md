@@ -54,12 +54,12 @@ Objetivos, en orden de prioridad:
 
 Dado que el sistema trata datos personales de terceros (OSINT, análisis de brechas) y ejecuta acciones potencialmente ofensivas (pentest), este marco es un requisito, no una recomendación.
 
-- **RF-LEG-01 — Autorización de pentest.** Toda auditoría ofensiva se ejecuta únicamente contra sistemas propios o con **autorización escrita** verificable. El alcance (hosts/dominios permitidos) se define explícitamente y se rechaza cualquier objetivo fuera de él (ver RF-SEC-06).
+- **RF-LEG-01 — Autorización de pentest.** Toda auditoría ofensiva se ejecuta únicamente contra sistemas propios o con autorización del usuario. El alcance (hosts/dominios permitidos) lo define **el usuario en su petición**: los objetivos que indica quedan autorizados por esa misma petición, y se rechaza cualquier objetivo fuera de ellos (ver RF-SEC-06). Si el usuario no indica ningún objetivo, no se ejecuta ninguna acción ofensiva y se le pide que lo especifique. _Nota: en un uso frente a terceros, el operador es responsable de contar con autorización escrita verificable; el sistema ya no la exige en código (decisión del propietario para un harness de uso propio)._
 - **RF-LEG-02 — Base legal y minimización.** El tratamiento de datos personales obtenidos por OSINT/brechas se limita a lo estrictamente necesario para la tarea; no se recopilan ni conservan datos superfluos.
 - **RF-LEG-03 — Retención y purga.** Los datos personales de terceros tienen una retención configurable y por defecto corta, con purga automática al vencer.
 - **RF-LEG-04 — Cifrado en reposo.** Datos sensibles recopilados y almacén de auditoría cifrados en reposo.
 - **RF-LEG-05 — Marco aplicable.** Diseño alineado con el RGPD y el marco de la UE aplicable. El sistema no está destinado a vigilancia de personas ni a reidentificación innecesaria.
-- **RF-LEG-06 — Trazabilidad legal.** Las autorizaciones de pentest y las bases de tratamiento quedan registradas y asociadas a las sesiones correspondientes.
+- **RF-LEG-06 — Trazabilidad legal.** El alcance autorizado por el usuario y las bases de tratamiento quedan registrados y asociados a las sesiones correspondientes (`authorization_ref` como metadato de auditoría).
 
 ---
 
@@ -278,7 +278,7 @@ Sin evaluación no hay forma objetiva de saber si un cambio mejora el sistema; y
 - **RF-SEC-03** **Nunca** coincide en una misma sesión la lectura de datos no confiables con la posesión de credenciales potentes (P2).
 - **RF-SEC-04** **Gestión de secretos**: los secretos viven en un **almacén dedicado** (p. ej. SOPS+age o Vault), se inyectan en runtime a tools/sandbox vía entorno o montaje efímero, y **no entran en el contexto del modelo**. Rotación soportada.
 - **RF-SEC-05** **Human-in-the-loop** obligatorio para acciones destructivas u ofensivas (mecanismo en §13).
-- **RF-SEC-06** **Alcance explícito de objetivos** para pentest: lista blanca de servicios propios/autorizados (§3); cualquier objetivo fuera de ella se rechaza.
+- **RF-SEC-06** **Alcance explícito de objetivos** para pentest: la lista de objetivos la define el usuario en su petición (§3); el modelo no puede salirse de ella y cualquier objetivo fuera se rechaza. Sin objetivo indicado, no se actúa y se solicita al usuario.
 - **RF-SEC-07** Mitigación de _prompt injection_: el contenido no confiable se trata como datos, nunca como instrucciones; la superficie que lo procesa no tiene poder (P2). Verificación continua en evaluación (RF-EV-07).
 - **RF-SEC-08** Auditoría de seguridad: toda acción sensible queda registrada con actor, perfil, clase de riesgo y confirmación asociada, con secretos redactados (RF-OB-11).
 
