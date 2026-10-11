@@ -151,9 +151,6 @@ class Profile(BaseModel):
     powerful: bool = False
     # Perfiles a los que este perfil puede delegar subtareas (orquestador → especialistas).
     delegate_profiles: list[str] = Field(default_factory=list)
-    # Motor alternativo para este perfil (ADR-0029): "local" usa el modelo local del inventario
-    # (`local-model`) si está enabled; si no, cae al motor por defecto. None = motor por defecto.
-    engine: str | None = None
     # Sesiones simultáneas de este perfil, contando subagentes delegados (RF-GOV-03). None = solo
     # el límite global.
     max_concurrent: int | None = Field(None, ge=1)
